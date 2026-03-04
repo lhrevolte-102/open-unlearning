@@ -55,8 +55,10 @@ def preprocess_chat_instance(
         system_prompt = template_config.get("system_prompt", None)
         if system_prompt:
             chat += [{"role": "system", "content": system_prompt}]
+        condition = template_config.get("condition", "baseline")
         for prompt, response in zip(prompt_msgs, response_msgs):
-            chat += [{"role": "user", "content": prompt}]
+            user_content = prompt + "\n\n" + prompt if condition == "prompt_repetition" else prompt
+            chat += [{"role": "user", "content": user_content}]
             chat += [{"role": "assistant", "content": response}]
         date_str = template_config.get("date_string", None)
         date_info = {"date_string": date_str} if date_str is not None else {}
