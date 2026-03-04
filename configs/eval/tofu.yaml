@@ -4,13 +4,16 @@
 defaults: # include all defined metrics files
   - tofu_metrics: # When you import a metric here, its configuration automatically populates the 
   # metric key below, enabled by the @package directive at the top of each configuration file.
-    - forget_quality
-    - forget_Q_A_Prob
-    - forget_Q_A_ROUGE
-    - model_utility # populated in the metrics key as metrics.model_utility
-    - privleak
+    - exact_memorization
     - extraction_strength
-    # - exact_memorization
+    - forget_Q_A_Prob
+    - forget_Q_A_PARA_Prob
+    - forget_Q_A_ROUGE
+    - forget_Q_A_PARA_ROUGE
+    - forget_Truth_Ratio
+    - privleak
+    - model_utility # populated in the metrics key as metrics.model_utility
+    # - forget_quality
     # - mia_min_k_plus_plus
     # - mia_min_k
     # - mia_loss
