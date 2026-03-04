@@ -32,7 +32,7 @@ class MinKPlusPlusAttack(MinKProbAttack):
         sigma = torch.clamp(sigma, min=1e-6)
         scores = (
             target_prob.float().cpu().numpy() - mu.float().cpu().numpy()
-        ) / torch.sqrt(sigma).cpu().numpy()
+        ) / torch.sqrt(sigma.to(torch.float32)).cpu().numpy()
 
         # Take bottom k% as the attack score
         num_k = max(1, int(len(scores) * self.k))
