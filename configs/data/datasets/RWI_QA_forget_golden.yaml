@@ -1,0 +1,10 @@
+RWI_QA_forget_golden:
+  handler: QADataset
+  args:
+    hf_args:
+      path: "json"
+      data_files: "./data/real_world/forget.json"
+      split: "train"
+    question_key: "question"
+    answer_key: "golden_answer"
+    max_length: 512

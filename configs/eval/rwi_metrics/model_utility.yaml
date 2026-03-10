@@ -1,0 +1,7 @@
+# @package eval.rwi.metrics.model_utility
+defaults:
+  - .@pre_compute.retain_Q_A_Prob: retain_Q_A_Prob
+  - .@pre_compute.retain_Q_A_ROUGE: retain_Q_A_ROUGE
+  - .@pre_compute.retain_Truth_Ratio: retain_Truth_Ratio
+
+handler: hm_aggregate

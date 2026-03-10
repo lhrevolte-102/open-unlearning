@@ -8,17 +8,19 @@ DATA_PATH = (
     / "saves"
     / "summary"
     / "data"
-    / "eval_summary_pr.csv"
+    / "tofu_summary_pr_1.csv"
 )
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "saves" / "summary" / "figures"
 
 MODEL_ORDER = [
     "Full",
     "Retain",
-    "NPO-α1-β0.1",
-    "NPO-α1-β0.5",
-    "RMU-α1-sc1",
-    "RMU-α1-sc10",
+    "DPO-α1-β0.1",
+    "NPO-α1-β0.05",
+    # "NPO-α1-β0.1",
+    # "NPO-α1-β0.5",
+    # "RMU-α1-sc1",
+    # "RMU-α1-sc10",
 ]
 
 CONDITION_ORDER = [
@@ -134,7 +136,7 @@ def main():
     metric_cols = [c for c in df.columns if c not in ("Model", "Condition")]
 
     chart = make_chart(df_long, metric_order=metric_cols, ncols=3)
-    save_pdf(chart, OUTPUT_DIR / "eval_summary_pr.pdf")
+    save_pdf(chart, OUTPUT_DIR / "tofu_summary_pr_1.pdf")
 
 
 if __name__ == "__main__":

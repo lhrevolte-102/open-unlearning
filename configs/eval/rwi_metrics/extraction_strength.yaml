@@ -1,0 +1,8 @@
+# @package eval.rwi.metrics.extraction_strength
+defaults:
+  - ../../data/datasets@datasets: RWI_QA_forget
+  - ../../collator@collators: DataCollatorForSupervisedDatasetwithIndex
+  # ^ get default dataset and generation config information
+
+handler: extraction_strength
+batch_size: ${eval.rwi.batch_size}

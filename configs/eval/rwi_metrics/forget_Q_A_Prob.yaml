@@ -1,0 +1,8 @@
+# @package eval.rwi.metrics.forget_Q_A_Prob
+defaults:
+  - ../../data/datasets@datasets: RWI_QA_forget_golden
+  - ../../collator@collators: DataCollatorForSupervisedDatasetwithIndex
+  # ^ get default dataset and generation config information
+
+handler: probability
+batch_size: ${eval.rwi.batch_size}

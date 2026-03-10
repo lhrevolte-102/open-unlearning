@@ -1,0 +1,32 @@
+# @package eval.rwi.metrics.retain_Q_A_ROUGE
+defaults:
+  - ../../data/datasets@datasets: RWI_QA_retain_golden
+  - ../../collator@collators: DataCollatorForSupervisedDatasetwithIndex
+  - ../../generation@generation_args: default
+
+  # ^ get default dataset and generation config information
+
+handler: rouge
+rouge_type: rougeL_recall
+batch_size: ${eval.rwi.batch_size}
+
+datasets: # override as needed
+  RWI_QA_retain_golden:
+    handler: QADataset
+    args:
+      hf_args:
+        path: json
+        data_files: ./data/real_world/neighbor.json
+        split: train
+      question_key: question
+      answer_key: golden_answer
+      max_length: 512
+      predict_with_generate: True
+collators:
+  DataCollatorForSupervisedDataset:
+    args:
+      padding_side: left
+generation_args:
+  do_sample: true
+  temperature: 2.0
+  top_k: 40

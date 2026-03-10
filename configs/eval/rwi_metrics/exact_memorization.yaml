@@ -1,0 +1,8 @@
+# @package eval.rwi.metrics.exact_memorization
+defaults:
+  - ../../data/datasets@datasets: RWI_QA_forget_golden
+  - ../../collator@collators: DataCollatorForSupervisedDatasetwithIndex
+  # ^ get default dataset and generation config information
+
+handler: exact_memorization
+batch_size: ${eval.rwi.batch_size}

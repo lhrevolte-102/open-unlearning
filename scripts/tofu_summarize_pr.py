@@ -11,10 +11,12 @@ TARGET_MODELS = {
 }
 
 UNLEARN_MODELS = {
-    "tofu_Llama-3.2-3B-Instruct_forget10_NPO_alpha1_beta0.1": "NPO-α1-β0.1",
-    "tofu_Llama-3.2-3B-Instruct_forget10_NPO_alpha1_beta0.5": "NPO-α1-β0.5",
-    "tofu_Llama-3.2-3B-Instruct_forget10_RMU_alpha1_steering_coeff1": "RMU-α1-sc1",
-    "tofu_Llama-3.2-3B-Instruct_forget10_RMU_alpha1_steering_coeff10": "RMU-α1-sc10",
+    "tofu_Llama-3.2-3B-Instruct_forget10_NPO_alpha1_beta0.05": "NPO-α1-β0.05",
+    "tofu_Llama-3.2-3B-Instruct_forget10_DPO_alpha1_beta0.1": "DPO-α1-β0.1",
+    # "tofu_Llama-3.2-3B-Instruct_forget10_NPO_alpha1_beta0.1": "NPO-α1-β0.1",
+    # "tofu_Llama-3.2-3B-Instruct_forget10_NPO_alpha1_beta0.5": "NPO-α1-β0.5",
+    # "tofu_Llama-3.2-3B-Instruct_forget10_RMU_alpha1_steering_coeff1": "RMU-α1-sc1",
+    # "tofu_Llama-3.2-3B-Instruct_forget10_RMU_alpha1_steering_coeff10": "RMU-α1-sc10",
 }
 
 # All four conditions in unified form
@@ -165,7 +167,7 @@ def main():
     df_pivot = df_pivot[ordered_cols + remaining]
 
     os.makedirs(SAVE_DIR, exist_ok=True)
-    save_path = os.path.join(SAVE_DIR, "eval_summary_pr.csv")
+    save_path = os.path.join(SAVE_DIR, "tofu_summary_pr_1.csv")
     df_pivot.to_csv(save_path, index=False)
     print(f"Saved to {save_path}")
 
