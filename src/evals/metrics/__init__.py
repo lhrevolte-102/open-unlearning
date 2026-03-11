@@ -8,6 +8,7 @@ from evals.metrics.memorization import (
     truth_ratio,
     extraction_strength,
     exact_memorization,
+    token_probability,
 )
 from evals.metrics.privacy import ks_test, privleak, rel_diff
 from evals.metrics.mia import (
@@ -62,6 +63,7 @@ _register_metric(privleak)
 _register_metric(rel_diff)
 _register_metric(exact_memorization)
 _register_metric(extraction_strength)
+_register_metric(token_probability)
 
 # Register MIA metrics
 _register_metric(mia_loss)

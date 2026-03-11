@@ -8,6 +8,7 @@ from evals.metrics.utils import (
     evaluate_probability,
     eval_text_similarity,
     run_batchwise_evals,
+    tokenwise_logprobs,
     tokenwise_vocab_logprobs,
 )
 from evals.metrics.base import unlearning_metric
@@ -255,3 +256,101 @@ def extraction_strength(model, **kwargs):
     )
     es_values = aggregate_to_1D(es_values)
     return {"agg_value": np.mean(es_values), "value_by_index": scores_by_index}
+
+
+@unlearning_metric(name="token_probability")
+def token_probability(model, **kwargs):
+    """Compute token-level probabilities and return aggregated statistics along with per-index scores.
+    
+    This metric computes the probability of each individual token in the target sequence,
+    returning both per-token probabilities and aggregated statistics (mean sequence logprob,
+    mean token probability).
+    
+    Returns:
+        dict: {
+            "agg_value": float (mean of all token probabilities across dataset),
+            "value_by_index": {
+                idx: {
+                    "tokens": List[str],  # token strings
+                    "token_ids": List[int],  # token ids
+                    "token_probs": List[float],  # probability of each token
+                    "token_logprobs": List[float],  # log probability of each token
+                    "num_tokens": int,  # number of target tokens
+                    "sequence_logprob": float,  # sum of token logprobs
+                    "mean_token_logprob": float,  # average token logprob
+                    "mean_token_prob": float,  # average token probability
+                }
+            }
+        }
+    """
+    data = kwargs["data"]
+    collator = kwargs["collators"]
+    batch_size = kwargs["batch_size"]
+    tokenizer = kwargs.get("tokenizer", None)
+    
+    if tokenizer is None:
+        raise ValueError("token_probability metric requires a tokenizer")
+
+    dataloader = DataLoader(data, batch_size=batch_size, collate_fn=collator)
+
+    def _token_probability(model, batch):
+        """Evaluate token-level probabilities for a batch."""
+        log_probs_batch, labels_batch = tokenwise_logprobs(
+            model, batch, grad=False, return_labels=True
+        )
+        results_batch = []
+        for log_probs, labels in zip(log_probs_batch, labels_batch):
+            valid_len = len(labels)
+            if valid_len == 0:
+                logger.warning(
+                    "Token probability for an instance is marked None, due to "
+                    "tokenization issues that resulted in no valid target tokens."
+                )
+                results_batch.append({
+                    "tokens": None,
+                    "token_ids": None,
+                    "token_probs": None,
+                    "token_logprobs": None,
+                    "num_tokens": 0,
+                    "sequence_logprob": None,
+                    "mean_token_logprob": None,
+                    "mean_token_prob": None,
+                })
+            else:
+                token_logprobs = log_probs.detach().cpu().tolist()
+                token_probs = [float(np.exp(lp)) for lp in token_logprobs]
+                sequence_logprob = float(np.sum(token_logprobs))
+                mean_token_logprob = float(np.mean(token_logprobs))
+                mean_token_prob = float(np.mean(token_probs))
+                
+                # Convert token ids to token strings
+                label_ids = labels.tolist()
+                token_strings = tokenizer.convert_ids_to_tokens(label_ids)
+                
+                results_batch.append({
+                    "tokens": token_strings,
+                    "token_ids": label_ids,
+                    "token_probs": token_probs,
+                    "token_logprobs": token_logprobs,
+                    "num_tokens": valid_len,
+                    "sequence_logprob": sequence_logprob,
+                    "mean_token_logprob": mean_token_logprob,
+                    "mean_token_prob": mean_token_prob,
+                })
+        return results_batch
+
+    fun_args = {}
+    scores_by_index = run_batchwise_evals(
+        model, dataloader, _token_probability, fun_args, "Calculating token probabilities"
+    )
+    
+    # Compute aggregated statistics
+    all_token_probs = []
+    for evals in scores_by_index.values():
+        if evals["token_probs"] is not None:
+            all_token_probs.extend(evals["token_probs"])
+    
+    return {
+        "agg_value": float(np.mean(all_token_probs)) if all_token_probs else None,
+        "value_by_index": scores_by_index,
+    }

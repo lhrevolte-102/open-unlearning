@@ -1,0 +1,13 @@
+# @package eval.rwi.metrics.forget_Q_A_PERT_token_Prob
+defaults:
+  - ../../data/datasets@datasets: RWI_QA_forget_pert
+  - ../../collator@collators: DataCollatorForSupervisedDatasetwithIndex
+
+handler: token_probability
+batch_size: ${eval.rwi.batch_size}
+
+datasets:
+  RWI_QA_forget_pert:
+    args:
+      hf_args:
+        name: forget_perturbed

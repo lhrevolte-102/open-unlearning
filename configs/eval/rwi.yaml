@@ -8,9 +8,15 @@ defaults: # include all defined metrics files
       - extraction_strength
       - forget_Q_A_Prob
       - forget_Q_A_PARA_Prob
+      - forget_Q_A_token_Prob
+      - forget_Q_A_PARA_token_Prob
       - forget_Q_A_ROUGE
       - forget_Q_A_PARA_ROUGE
       - model_utility # populated in the metrics key as metrics.model_utility
+      # - forget_Q_A_PERT_token_Prob
+      # - retain_Q_A_token_Prob
+      # - retain_Q_A_PARA_token_Prob
+      # - retain_Q_A_PERT_token_Prob
 
 handler: RWIEvaluator
 output_dir: ${paths.output_dir}

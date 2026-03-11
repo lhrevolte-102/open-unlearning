@@ -1,0 +1,13 @@
+# @package eval.rwi.metrics.retain_Q_A_token_Prob
+defaults:
+  - ../../data/datasets@datasets: RWI_QA_retain
+  - ../../collator@collators: DataCollatorForSupervisedDatasetwithIndex
+
+handler: token_probability
+batch_size: ${eval.rwi.batch_size}
+
+datasets:
+  RWI_QA_retain:
+    args:
+      hf_args:
+        name: retain
