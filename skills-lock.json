@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "skills": {
+    "hf-cli": {
+      "source": "huggingface/skills",
+      "sourceType": "github",
+      "computedHash": "90f4850d81eb5b8a6e15ff2e3cca19d760f93d16e1c060cf60460a3a0c4616db"
+    },
+    "huggingface-community-evals": {
+      "source": "huggingface/skills",
+      "sourceType": "github",
+      "computedHash": "32eec43c4c176086132aefee5377b47e98095727289f128492da697dccbc1598"
+    },
+    "huggingface-datasets": {
+      "source": "huggingface/skills",
+      "sourceType": "github",
+      "computedHash": "79398ce664a1554bd55582cfa933ca0e6732840c5e2e00afe0132c44e22ee767"
+    },
+    "huggingface-llm-trainer": {
+      "source": "huggingface/skills",
+      "sourceType": "github",
+      "computedHash": "a607046533c251221fd745780cf9b1fd7902bbe51549711ac95413f79d1b8631"
+    },
+    "huggingface-trackio": {
+      "source": "huggingface/skills",
+      "sourceType": "github",
+      "computedHash": "4abbde9c1ea31278f66e927c1260d5286e9e6b7ff1ba788d7570207f0a59f2c1"
+    },
+    "uv": {
+      "source": "astral-sh/claude-code-plugins",
+      "sourceType": "github",
+      "computedHash": "b1ca9e9826d906f6ee6ea172da50018ec13bb622ac9ba7204bda8b10e7fc8d0a"
+    }
+  }
+}
