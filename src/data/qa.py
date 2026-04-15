@@ -1,7 +1,13 @@
 import torch
 from torch.utils.data import Dataset
 
-from data.utils import load_hf_dataset, preprocess_chat_instance, add_dataset_index
+from data.utils import (
+    add_dataset_index,
+    filter_dataset_by_index,
+    load_allowed_indices,
+    load_hf_dataset,
+    preprocess_chat_instance,
+)
 
 
 class QADataset(Dataset):
@@ -15,12 +21,16 @@ class QADataset(Dataset):
         few_shot_dataset_hf_args=None,
         max_length=512,
         predict_with_generate=False,
+        allowed_indices_path=None,
     ):
         super(QADataset, self).__init__()
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.data = load_hf_dataset(**hf_args)
         self.data = add_dataset_index(self.data)
+        if allowed_indices_path is not None:
+            allowed_indices = load_allowed_indices(allowed_indices_path)
+            self.data = filter_dataset_by_index(self.data, allowed_indices)
         self.fs_data = None
         if few_shot_dataset_hf_args is not None:
             raw_data = load_hf_dataset(**few_shot_dataset_hf_args)
@@ -76,31 +86,55 @@ class QADataset(Dataset):
 
 
 class QAwithIdkDataset(QADataset):
-    def __init__(self, idk_path, return_original=True, *args, **kwargs):
+    def __init__(
+        self,
+        idk_path,
+        return_original=True,
+        idk_sampling_mode="random",
+        idk_sampling_seed=0,
+        *args,
+        **kwargs,
+    ):
         self.idk_path = idk_path
         self.return_original = return_original
-        self.idk_responses = open(self.idk_path, "r").readlines()
+        self.idk_sampling_mode = idk_sampling_mode
+        self.idk_sampling_seed = idk_sampling_seed
+        with open(self.idk_path, "r", encoding="utf-8") as file:
+            self.idk_responses = file.readlines()
         super().__init__(*args, **kwargs)
 
-    def item_with_idk(self, question):
-        rand_pos = torch.randint(0, len(self.idk_responses), (1,)).item()
+    def item_with_idk(self, question, index=-1):
+        if self.idk_sampling_mode == "random":
+            rand_pos = torch.randint(0, len(self.idk_responses), (1,)).item()
+        elif self.idk_sampling_mode == "deterministic":
+            rand_pos = (int(index) + int(self.idk_sampling_seed)) % len(
+                self.idk_responses
+            )
+        else:
+            raise ValueError(
+                f"Unsupported idk_sampling_mode '{self.idk_sampling_mode}', expected "
+                "'random' or 'deterministic'"
+            )
         idk_response = self.idk_responses[rand_pos].strip()
-        idk_item = self._process_sample(question=question, answer=idk_response)
+        idk_item = self._process_sample(
+            question=question, answer=idk_response, index=index
+        )
         return idk_item
 
     def __getitem__(self, idx):
         item = super().__getitem__(idx)
         question = self.data[idx][self.question_key]
+        index = self.data[idx]["index"]
         if isinstance(item, dict):
             return_item = {"original": item}
-            idk_item = self.item_with_idk(question)
+            idk_item = self.item_with_idk(question, index=index)
             return_item["alternate"] = idk_item
             # return_item = [item, idk_item]
         elif isinstance(item, list) or isinstance(item, tuple):
             return_item = []
             for sample_item in item:
                 return_item = {"original": sample_item}
-                idk_item = self.item_with_idk(question)
+                idk_item = self.item_with_idk(question, index=index)
                 return_item["alternate"] = idk_item
                 # return_item.append([sample_item, idk_item])
         return return_item if self.return_original else return_item["alternate"]
@@ -115,10 +149,13 @@ class QAwithAlternateDataset(QADataset):
     def __getitem__(self, idx):
         item = super().__getitem__(idx)
         question = self.data[idx][self.question_key]
+        index = self.data[idx]["index"]
         if isinstance(item, dict):
             return_item = {"original": item}
             alt_item = self._process_sample(
-                question=question, answer=self.data[idx][self.alternate_key]
+                question=question,
+                answer=self.data[idx][self.alternate_key],
+                index=index,
             )
             return_item["alternate"] = alt_item
             # return_item = [item, idk_item]
@@ -127,7 +164,9 @@ class QAwithAlternateDataset(QADataset):
             for sample_item in item:
                 return_item = {"original": sample_item}
                 alt_item = self._process_sample(
-                    question=question, answer=self.data[idx][self.alternate_key]
+                    question=question,
+                    answer=self.data[idx][self.alternate_key],
+                    index=index,
                 )
                 return_item["alternate"] = alt_item
                 # return_item.append([sample_item, idk_item])

@@ -2,9 +2,9 @@ import hydra
 from omegaconf import DictConfig
 from data import get_data, get_collators
 from model import get_model
+from runtime_utils import seed_everything
 from trainer import load_trainer
 from evals import get_evaluators
-from trainer.utils import seed_everything
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="train.yaml")
@@ -57,7 +57,7 @@ def main(cfg: DictConfig):
     )
 
     if trainer_args.do_train:
-        trainer.train()
+        trainer.train(resume_from_checkpoint=cfg.get("resume_from_checkpoint", None))
         trainer.save_state()
         trainer.save_model(trainer_args.output_dir)
 

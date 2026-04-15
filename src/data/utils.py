@@ -1,8 +1,11 @@
-import torch
+import json
+import logging
+from pathlib import Path
+from typing import List, Dict, Any, Union
+
 import datasets
 import numpy as np
-import logging
-from typing import List, Dict, Any, Union
+import torch
 
 IGNORE_INDEX = -100  # TODO put in common constants
 
@@ -190,3 +193,35 @@ def add_dataset_index(dataset):
     indexing = np.arange(len(dataset))
     dataset = dataset.add_column("index", indexing)
     return dataset
+
+
+def load_allowed_indices(indices_path: Union[str, Path]) -> List[int]:
+    indices_path = Path(indices_path)
+    with indices_path.open("r", encoding="utf-8") as file:
+        payload = json.load(file)
+
+    if isinstance(payload, dict):
+        indices = payload.get("allowed_indices")
+    else:
+        indices = payload
+
+    if indices is None:
+        raise ValueError(
+            f"No 'allowed_indices' list found in selective manifest: {indices_path}"
+        )
+
+    return sorted({int(idx) for idx in indices})
+
+
+def filter_dataset_by_index(dataset, allowed_indices: List[int]):
+    if not allowed_indices:
+        return dataset.select([])
+
+    max_valid_index = len(dataset) - 1
+    invalid_indices = [idx for idx in allowed_indices if idx < 0 or idx > max_valid_index]
+    if invalid_indices:
+        raise ValueError(
+            f"Found invalid dataset indices {invalid_indices[:10]} for dataset of size {len(dataset)}"
+        )
+
+    return dataset.select(allowed_indices)

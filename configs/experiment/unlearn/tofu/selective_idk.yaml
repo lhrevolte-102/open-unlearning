@@ -1,0 +1,17 @@
+# @package _global_
+
+defaults:
+  - /experiment/unlearn/tofu/idk
+  - override /trainer: DPO
+
+selective_manifest_path: null
+stage_percentiles: [0.3, 0.6, 1.0]
+stage_epoch_ratios: [0.3, 0.3, 0.4]
+
+data:
+  forget:
+    TOFU_QA_forget_idk:
+      args:
+        allowed_indices_path: ${selective_manifest_path}
+        idk_sampling_mode: random
+        idk_sampling_seed: 0

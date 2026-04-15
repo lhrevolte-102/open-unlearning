@@ -10,4 +10,7 @@ TOFU_QA_forget_idk:
     max_length: 512
     idk_path: ./data/idk.jsonl
     return_original: true
+    allowed_indices_path: null
+    idk_sampling_mode: random
+    idk_sampling_seed: 0
     

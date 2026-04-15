@@ -1,0 +1,15 @@
+# @package _global_
+
+defaults:
+  - /experiment/unlearn/tofu/default
+  - override /trainer: NPO
+
+selective_manifest_path: null
+stage_percentiles: [0.3, 0.6, 1.0]
+stage_epoch_ratios: [0.3, 0.3, 0.4]
+
+data:
+  forget:
+    TOFU_QA_forget:
+      args:
+        allowed_indices_path: ${selective_manifest_path}

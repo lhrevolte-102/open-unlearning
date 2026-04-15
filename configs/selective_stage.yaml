@@ -1,0 +1,14 @@
+defaults:
+  - hydra: default
+  - paths: default
+  - experiment: null
+  - _self_
+
+mode: selective_stage
+task_name: selective_stage
+trainer:
+  handler: selective_stage
+difficulty_path: ???
+output_dir: ${paths.output_dir}/stages
+stage_percentiles: [0.3, 0.6, 1.0]
+stage_epoch_ratios: [0.3, 0.3, 0.4]

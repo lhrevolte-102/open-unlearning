@@ -26,6 +26,7 @@ dependencies = [
   "scikit-learn==1.5.2",
   "deepspeed==0.15.4",
   "wandb==0.21.4",
+  "pytest[dev]>=9.0.3",
 ]
 
 [project.optional-dependencies]
