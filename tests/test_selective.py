@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import datasets
 import torch
+from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
 from torch.utils.data import RandomSampler, SequentialSampler
 
@@ -291,6 +292,47 @@ class SelectiveTests(unittest.TestCase):
         self.assertEqual(len(npo_losses), 2)
         self.assertEqual(len(idk_losses), 2)
         self.assertTrue(all(isinstance(loss, float) for loss in npo_losses + idk_losses))
+
+    def test_compute_unlearning_forget_losses_reports_method_batch_mismatch(self):
+        model = _FakeModel(_make_logits([(0, 1), (1, 0)]))
+        ref_model = _FakeModel(_make_logits([(1, 1), (0, 0)]))
+        idkdpo_batch = {
+            "original": {
+                "input_ids": torch.tensor([[1, 2, 3], [1, 2, 3]]),
+                "attention_mask": torch.tensor([[1, 1, 1], [1, 1, 1]]),
+                "labels": torch.tensor([[-100, 0, 1], [-100, 1, 0]]),
+                "index": torch.tensor([10, 11]),
+            },
+            "alternate": {
+                "input_ids": torch.tensor([[1, 2, 3], [1, 2, 3]]),
+                "attention_mask": torch.tensor([[1, 1, 1], [1, 1, 1]]),
+                "labels": torch.tensor([[-100, 1, 1], [-100, 0, 0]]),
+                "index": torch.tensor([10, 11]),
+            },
+        }
+
+        with self.assertRaisesRegex(ValueError, "method='npo'"):
+            compute_unlearning_forget_losses(
+                model=model,
+                ref_model=ref_model,
+                batch=idkdpo_batch,
+                method="NPO",
+                beta=0.1,
+            )
+
+    def test_selective_configs_allow_experiment_method_override(self):
+        with initialize_config_dir(version_base=None, config_dir=str(ROOT / "configs")):
+            prepare_cfg = compose(
+                config_name="selective_prepare.yaml",
+                overrides=["experiment=selective/tofu/idkdpo"],
+            )
+            reference_cfg = compose(
+                config_name="selective_reference.yaml",
+                overrides=["experiment=selective/tofu/idkdpo"],
+            )
+
+        self.assertEqual(prepare_cfg.method, "IdkDPO")
+        self.assertEqual(reference_cfg.method, "IdkDPO")
 
     def test_difficulty_payload_and_stage_manifests_cover_missing_scores(self):
         payload = build_difficulty_payload(

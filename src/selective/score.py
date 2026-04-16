@@ -31,8 +31,33 @@ def _normalize_method(method):
     raise ValueError(f"Unsupported selective method '{method}'")
 
 
+def _ensure_batch_matches_method(batch, method):
+    has_pairwise_keys = isinstance(batch, dict) and {
+        "original",
+        "alternate",
+    }.issubset(batch.keys())
+    has_flat_index = isinstance(batch, dict) and "index" in batch
+
+    if method == "npo" and not has_flat_index:
+        if has_pairwise_keys:
+            raise ValueError(
+                "Received an IdkDPO-style paired batch while selective scoring is "
+                "configured with method='npo'. Check that the experiment override "
+                "is applied after the base selective config."
+            )
+        raise KeyError("index")
+
+    if method == "idkdpo" and not has_pairwise_keys:
+        raise ValueError(
+            "Received a flat batch while selective scoring is configured with "
+            "method='idkdpo'. Check that the experiment override matches the "
+            "dataset used for selective scoring."
+        )
+
+
 def compute_unlearning_forget_losses(model, ref_model, batch, method, beta):
     method = _normalize_method(method)
+    _ensure_batch_matches_method(batch, method)
     device = next(model.parameters()).device
 
     if method == "npo":

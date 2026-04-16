@@ -3,8 +3,8 @@ defaults:
   - collator: DataCollatorForSupervisedDatasetwithIndex
   - hydra: default
   - paths: default
-  - experiment: null
   - _self_
+  - experiment: null
 
 seed: 0
 mode: selective_prepare

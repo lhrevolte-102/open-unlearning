@@ -26,6 +26,15 @@ def _load_model_from_path(model_cfg, model_path):
     return model
 
 
+def _prepare_model_for_scoring(model):
+    runtime_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if hasattr(model, "to"):
+        model = model.to(runtime_device)
+    if hasattr(model, "eval"):
+        model.eval()
+    return model
+
+
 def prepare_difficulty_payload(
     cfg: DictConfig,
     dataset,
@@ -44,8 +53,8 @@ def prepare_difficulty_payload(
         if not heldout_indices:
             continue
 
-        reference_model = _load_model_from_path(
-            cfg.model, reference_spec["checkpoint_path"]
+        reference_model = _prepare_model_for_scoring(
+            _load_model_from_path(cfg.model, reference_spec["checkpoint_path"])
         )
         dataset_subset = clone_dataset_with_indices(dataset, heldout_indices)
         fold_scores = score_dataset_with_reference(
@@ -110,7 +119,7 @@ def main(cfg: DictConfig):
     target_model, _ = get_model(
         OmegaConf.create(OmegaConf.to_container(cfg.model, resolve=False))
     )
-    target_model.eval()
+    target_model = _prepare_model_for_scoring(target_model)
 
     difficulty_payload = prepare_difficulty_payload(
         cfg=cfg,
