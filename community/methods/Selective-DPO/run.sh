@@ -283,9 +283,9 @@ run_selective_order() {
             trainer.args.eval_on_start=false \
             trainer.args.eval_strategy=no \
             trainer.args.save_strategy=epoch \
-            trainer.args.save_total_limit=1 \
+            +trainer.args.save_total_limit=1 \
             trainer.args.save_only_model=false \
-            trainer.args.ignore_data_skip=true \
+            +trainer.args.ignore_data_skip=true \
             "${TRACKIO_ARGS[@]}" \
             "${EXTRA_ARGS[@]}" \
             paths.output_dir=${STAGE_OUTPUT_DIR}

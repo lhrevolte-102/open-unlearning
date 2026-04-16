@@ -576,6 +576,19 @@ class SelectiveTests(unittest.TestCase):
             check=True,
         )
 
+    def test_selective_scripts_add_non_schema_trainer_args_with_hydra_plus_prefix(self):
+        dpo_script = (
+            ROOT / "community" / "methods" / "Selective-DPO" / "run.sh"
+        ).read_text(encoding="utf-8")
+        npo_script = (
+            ROOT / "community" / "methods" / "Selective-NPO" / "run.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("+trainer.args.save_total_limit=1", dpo_script)
+        self.assertIn("+trainer.args.save_total_limit=1", npo_script)
+        self.assertIn("+trainer.args.ignore_data_skip=true", dpo_script)
+        self.assertIn("+trainer.args.ignore_data_skip=true", npo_script)
+
 
 if __name__ == "__main__":
     unittest.main()
