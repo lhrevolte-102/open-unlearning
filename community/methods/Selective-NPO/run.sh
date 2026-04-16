@@ -25,6 +25,46 @@ FOLD_ASSIGNMENT_SEED=0
 GPU_ID="0"
 
 ########################################
+# Trackio config
+########################################
+TRACKIO_ENABLED="${TRACKIO_ENABLED:-true}"
+TRACKIO_PROJECT="${TRACKIO_PROJECT:-open-unlearning-selective}"
+TRACKIO_SPACE_ID="${TRACKIO_SPACE_ID:-}"
+TRACKIO_DATASET_ID="${TRACKIO_DATASET_ID:-}"
+TRACKIO_AUTO_LOG_GPU="${TRACKIO_AUTO_LOG_GPU:-true}"
+TRACKIO_GPU_LOG_INTERVAL="${TRACKIO_GPU_LOG_INTERVAL:-10.0}"
+TRACKIO_WEBHOOK_URL="${TRACKIO_WEBHOOK_URL:-}"
+TRACKIO_WEBHOOK_MIN_LEVEL="${TRACKIO_WEBHOOK_MIN_LEVEL:-}"
+
+build_trackio_args() {
+    local run_name="$1"
+    local run_group="$2"
+    local -a args=(
+        "trackio.enabled=${TRACKIO_ENABLED}"
+        "trackio.project=${TRACKIO_PROJECT}"
+        "trackio.name=${run_name}"
+        "trackio.group=${run_group}"
+        "trackio.auto_log_gpu=${TRACKIO_AUTO_LOG_GPU}"
+        "trackio.gpu_log_interval=${TRACKIO_GPU_LOG_INTERVAL}"
+    )
+
+    if [[ -n "${TRACKIO_SPACE_ID}" ]]; then
+        args+=("trackio.space_id=${TRACKIO_SPACE_ID}")
+    fi
+    if [[ -n "${TRACKIO_DATASET_ID}" ]]; then
+        args+=("trackio.dataset_id=${TRACKIO_DATASET_ID}")
+    fi
+    if [[ -n "${TRACKIO_WEBHOOK_URL}" ]]; then
+        args+=("trackio.webhook_url=${TRACKIO_WEBHOOK_URL}")
+    fi
+    if [[ -n "${TRACKIO_WEBHOOK_MIN_LEVEL}" ]]; then
+        args+=("trackio.webhook_min_level=${TRACKIO_WEBHOOK_MIN_LEVEL}")
+    fi
+
+    printf '%s\n' "${args[@]}"
+}
+
+########################################
 # Derived paths
 ########################################
 BASE_MODEL_PATH="open-unlearning/tofu_${MODEL}_full"
@@ -61,6 +101,7 @@ for (( fold_id=0; fold_id<NUM_FOLDS; fold_id++ )); do
     TRAIN_MANIFEST=${FOLDS_DIR}/fold${fold_id}_train.json
     FOLD_TASK_NAME=${REFERENCE_TASK_PREFIX}_fold${fold_id}
     FOLD_OUTPUT_DIR=${REFERENCE_MODELS_DIR}/fold${fold_id}
+    mapfile -t TRACKIO_ARGS < <(build_trackio_args "${FOLD_TASK_NAME}" "${TASK_PREFIX}_references")
 
     CUDA_VISIBLE_DEVICES=${GPU_ID} python src/train.py --config-name=unlearn.yaml \
         experiment=unlearn/tofu/selective_npo \
@@ -83,6 +124,7 @@ for (( fold_id=0; fold_id<NUM_FOLDS; fold_id++ )); do
         trainer.args.eval_strategy=no \
         trainer.args.save_strategy=no \
         trainer.args.save_only_model=true \
+        "${TRACKIO_ARGS[@]}" \
         paths.output_dir=${FOLD_OUTPUT_DIR}
 done
 
@@ -128,6 +170,7 @@ for STAGE_MANIFEST in "${STAGE_DIR}"/stage*.json; do
     STAGE_EPOCHS=$(python -c "total_epochs=float('${TOTAL_EPOCHS}'); epoch_ratio=float('${EPOCH_RATIO}'); print(max(epoch_ratio * total_epochs, 1.0))")
     STAGE_TASK_NAME=${TASK_PREFIX}_${STAGE_NAME}
     FINAL_TASK_NAME=${STAGE_TASK_NAME}
+    mapfile -t TRACKIO_ARGS < <(build_trackio_args "${STAGE_TASK_NAME}" "${TASK_PREFIX}_stages")
 
     EXTRA_ARGS=()
     if [[ -n "$PREV_OUTPUT_DIR" ]]; then
@@ -162,11 +205,13 @@ for STAGE_MANIFEST in "${STAGE_DIR}"/stage*.json; do
         trainer.args.save_total_limit=1 \
         trainer.args.save_only_model=false \
         trainer.args.ignore_data_skip=true \
+        "${TRACKIO_ARGS[@]}" \
         "${EXTRA_ARGS[@]}"
 
     PREV_OUTPUT_DIR=saves/unlearn/${STAGE_TASK_NAME}
 done
 
+mapfile -t TRACKIO_ARGS < <(build_trackio_args "${FINAL_TASK_NAME}_eval" "${TASK_PREFIX}_eval")
 CUDA_VISIBLE_DEVICES=${GPU_ID} python src/eval.py \
     experiment=eval/tofu/default.yaml \
     forget_split=${FORGET_SPLIT} \
@@ -174,6 +219,7 @@ CUDA_VISIBLE_DEVICES=${GPU_ID} python src/eval.py \
     task_name=${FINAL_TASK_NAME} \
     model.model_args.pretrained_model_name_or_path=saves/unlearn/${FINAL_TASK_NAME} \
     paths.output_dir=saves/unlearn/${FINAL_TASK_NAME}/evals \
+    "${TRACKIO_ARGS[@]}" \
     retain_logs_path=${RETAIN_LOGS_PATH}
 
 echo "Selective-NPO training completed. Final stage output: ${PREV_OUTPUT_DIR}"

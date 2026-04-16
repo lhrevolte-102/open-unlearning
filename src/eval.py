@@ -1,6 +1,13 @@
 import hydra
 from omegaconf import DictConfig
 
+from trackio_utils import (
+    emit_trackio_alert,
+    finish_trackio_run,
+    init_trackio_run,
+    is_trackio_enabled,
+    log_trackio_metrics,
+)
 from trainer.utils import seed_everything
 from model import get_model
 from evals import get_evaluators
@@ -20,13 +27,27 @@ def main(cfg: DictConfig):
 
     eval_cfgs = cfg.eval
     evaluators = get_evaluators(eval_cfgs)
-    for evaluator_name, evaluator in evaluators.items():
-        eval_args = {
-            "template_args": template_args,
-            "model": model,
-            "tokenizer": tokenizer,
-        }
-        _ = evaluator.evaluate(**eval_args)
+    trackio_active = False
+    if is_trackio_enabled(cfg):
+        trackio_active = init_trackio_run(cfg)
+
+    try:
+        for evaluator_name, evaluator in evaluators.items():
+            eval_args = {
+                "template_args": template_args,
+                "model": model,
+                "tokenizer": tokenizer,
+            }
+            metrics = evaluator.evaluate(**eval_args)
+            if trackio_active and isinstance(metrics, dict):
+                log_trackio_metrics(metrics)
+    except Exception as exc:
+        if trackio_active:
+            emit_trackio_alert("Evaluation failed", str(exc), level="ERROR")
+        raise
+    finally:
+        if trackio_active:
+            finish_trackio_run()
 
 
 if __name__ == "__main__":
