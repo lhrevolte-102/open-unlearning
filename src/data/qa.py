@@ -22,6 +22,7 @@ class QADataset(Dataset):
         max_length=512,
         predict_with_generate=False,
         allowed_indices_path=None,
+        preserve_manifest_order=False,
     ):
         super(QADataset, self).__init__()
         self.tokenizer = tokenizer
@@ -29,7 +30,10 @@ class QADataset(Dataset):
         self.data = load_hf_dataset(**hf_args)
         self.data = add_dataset_index(self.data)
         if allowed_indices_path is not None:
-            allowed_indices = load_allowed_indices(allowed_indices_path)
+            allowed_indices = load_allowed_indices(
+                allowed_indices_path,
+                preserve_order=preserve_manifest_order,
+            )
             self.data = filter_dataset_by_index(self.data, allowed_indices)
         self.fs_data = None
         if few_shot_dataset_hf_args is not None:

@@ -3,6 +3,7 @@ from omegaconf import DictConfig
 from data import get_data, get_collators
 from model import get_model
 from runtime_utils import seed_everything
+from selective.runtime import apply_intra_stage_ordering
 from trackio_utils import (
     emit_trackio_alert,
     finish_trackio_run,
@@ -20,6 +21,7 @@ def main(cfg: DictConfig):
     Args:
         cfg (DictConfig): Config to train
     """
+    apply_intra_stage_ordering(cfg)
     seed_everything(cfg.trainer.args.seed)
     mode = cfg.get("mode", "train")
     model_cfg = cfg.model

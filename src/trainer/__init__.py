@@ -57,6 +57,7 @@ def load_trainer(
 ):
     trainer_args = trainer_cfg.args
     method_args = trainer_cfg.get("method_args", {})
+    train_sampler = trainer_cfg.get("train_sampler", "random")
     trainer_args = load_trainer_args(trainer_args, train_dataset)
     trainer_handler_name = trainer_cfg.get("handler")
     assert trainer_handler_name is not None, ValueError(
@@ -66,7 +67,7 @@ def load_trainer(
     assert trainer_cls is not None, NotImplementedError(
         f"{trainer_handler_name} not implemented or not registered"
     )
-    trainer = trainer_cls(
+    trainer_kwargs = dict(
         model=model,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
@@ -76,6 +77,12 @@ def load_trainer(
         evaluators=evaluators,
         template_args=template_args,
         **method_args,
+    )
+    if issubclass(trainer_cls, FinetuneTrainer):
+        trainer_kwargs["train_sampler"] = train_sampler
+
+    trainer = trainer_cls(
+        **trainer_kwargs,
     )
     logger.info(
         f"{trainer_handler_name} Trainer loaded, output_dir: {trainer_args.output_dir}"

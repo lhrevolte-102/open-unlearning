@@ -195,7 +195,24 @@ def add_dataset_index(dataset):
     return dataset
 
 
-def load_allowed_indices(indices_path: Union[str, Path]) -> List[int]:
+def _dedupe_indices(indices: List[int], preserve_order: bool = False) -> List[int]:
+    normalized = [int(idx) for idx in indices]
+    if preserve_order:
+        deduped = []
+        seen = set()
+        for idx in normalized:
+            if idx in seen:
+                continue
+            deduped.append(idx)
+            seen.add(idx)
+        return deduped
+
+    return sorted(set(normalized))
+
+
+def load_allowed_indices(
+    indices_path: Union[str, Path], preserve_order: bool = False
+) -> List[int]:
     indices_path = Path(indices_path)
     with indices_path.open("r", encoding="utf-8") as file:
         payload = json.load(file)
@@ -210,7 +227,7 @@ def load_allowed_indices(indices_path: Union[str, Path]) -> List[int]:
             f"No 'allowed_indices' list found in selective manifest: {indices_path}"
         )
 
-    return sorted({int(idx) for idx in indices})
+    return _dedupe_indices(indices, preserve_order=preserve_order)
 
 
 def filter_dataset_by_index(dataset, allowed_indices: List[int]):

@@ -185,6 +185,8 @@ g_s(i)=\mathbf{1}[r_i \le \tau_s]
 
 其含义是：在早期阶段，模型只在难度低于当前阈值的 forget samples 上做 IdkDPO 遗忘；随着阶段推进，越来越多更难的样本被纳入优化；最终阶段覆盖全部 forget samples。
 
+作为对照实验，可进一步固定同一组 stage 边界与 epoch 配比，仅改变 stage 内部的数据投放方式：baseline 保持 stage 内随机采样，而 strict-order 版本在每个 stage 的每个 epoch 中都按 easy-to-hard 的 difficulty 顺序遍历 forget samples。这样 cumulative stage coverage 完全一致，差别只来自 stage 内顺序本身。
+
 ---
 
 ## 6.3 Selective-NPO 的阶段目标

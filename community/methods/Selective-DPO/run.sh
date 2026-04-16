@@ -16,6 +16,9 @@ RETAIN_SPLIT="retain90"
 TOTAL_EPOCHS=10
 STAGE_PERCENTILES='[0.3,0.6,1.0]'
 STAGE_EPOCH_RATIOS='[0.3,0.3,0.4]'
+INTRA_STAGE_ORDERS_RAW="${INTRA_STAGE_ORDERS:-random difficulty_strict}"
+unset INTRA_STAGE_ORDERS
+read -r -a INTRA_STAGE_ORDERS <<< "${INTRA_STAGE_ORDERS_RAW}"
 BETA=0.1
 PER_DEVICE_TRAIN_BATCH_SIZE=16
 GRADIENT_ACCUMULATION_STEPS=4
@@ -77,9 +80,8 @@ REFERENCE_MODELS_DIR="${REFERENCE_DIR}/models"
 REFERENCE_MANIFEST_PATH="saves/selective_refs/${REFERENCE_TASK_PREFIX}/reference_models.json"
 SELECTIVE_DIR="saves/selective/${TASK_PREFIX}"
 DIFFICULTY_PATH="${SELECTIVE_DIR}/difficulty/difficulty.json"
-STAGE_DIR="${SELECTIVE_DIR}/stages"
 
-mkdir -p "$FOLDS_DIR" "$REFERENCE_MODELS_DIR" "$(dirname "$DIFFICULTY_PATH")" "$STAGE_DIR"
+mkdir -p "$FOLDS_DIR" "$REFERENCE_MODELS_DIR" "$(dirname "$DIFFICULTY_PATH")"
 
 python src/selective_reference.py \
     experiment=selective/tofu/idkdpo \
@@ -155,71 +157,86 @@ python src/selective_prepare.py \
     beta=${BETA} \
     score_output_path=${DIFFICULTY_PATH}
 
-python src/selective_stage.py \
-    task_name=${TASK_PREFIX}_stages \
-    difficulty_path=${DIFFICULTY_PATH} \
-    output_dir=${STAGE_DIR} \
-    stage_percentiles=${STAGE_PERCENTILES} \
-    stage_epoch_ratios=${STAGE_EPOCH_RATIOS}
+run_selective_order() {
+    local intra_stage_order="$1"
+    local selective_order_dir="${SELECTIVE_DIR}/${intra_stage_order}"
+    local stage_dir="${selective_order_dir}/stages"
+    local stage_task_prefix="${TASK_PREFIX}_${intra_stage_order}"
+    local prev_output_dir=""
+    local final_task_name=""
 
-PREV_OUTPUT_DIR=""
-FINAL_TASK_NAME=""
-for STAGE_MANIFEST in "${STAGE_DIR}"/stage*.json; do
-    STAGE_NAME=$(python -c "import json; print(json.load(open('${STAGE_MANIFEST}', 'r', encoding='utf-8'))['stage_name'])")
-    EPOCH_RATIO=$(python -c "import json; print(json.load(open('${STAGE_MANIFEST}', 'r', encoding='utf-8'))['epoch_ratio'])")
-    STAGE_EPOCHS=$(python -c "total_epochs=float('${TOTAL_EPOCHS}'); epoch_ratio=float('${EPOCH_RATIO}'); print(max(epoch_ratio * total_epochs, 1.0))")
-    STAGE_TASK_NAME=${TASK_PREFIX}_${STAGE_NAME}
-    FINAL_TASK_NAME=${STAGE_TASK_NAME}
-    mapfile -t TRACKIO_ARGS < <(build_trackio_args "${STAGE_TASK_NAME}" "${TASK_PREFIX}_stages")
+    mkdir -p "$stage_dir"
 
-    EXTRA_ARGS=()
-    if [[ -n "$PREV_OUTPUT_DIR" ]]; then
-        LATEST_CHECKPOINT=$(find "$PREV_OUTPUT_DIR" -maxdepth 1 -type d -name 'checkpoint-*' | sort -V | tail -n 1)
-        if [[ -z "$LATEST_CHECKPOINT" ]]; then
-            echo "No checkpoint found under ${PREV_OUTPUT_DIR} for ${STAGE_NAME} resume."
-            exit 1
+    python src/selective_stage.py \
+        task_name=${stage_task_prefix}_stages \
+        difficulty_path=${DIFFICULTY_PATH} \
+        output_dir=${stage_dir} \
+        intra_stage_order=${intra_stage_order} \
+        stage_percentiles=${STAGE_PERCENTILES} \
+        stage_epoch_ratios=${STAGE_EPOCH_RATIOS}
+
+    for STAGE_MANIFEST in "${stage_dir}"/stage[0-9]*.json; do
+        STAGE_NAME=$(python -c "import json; print(json.load(open('${STAGE_MANIFEST}', 'r', encoding='utf-8'))['stage_name'])")
+        EPOCH_RATIO=$(python -c "import json; print(json.load(open('${STAGE_MANIFEST}', 'r', encoding='utf-8'))['epoch_ratio'])")
+        STAGE_EPOCHS=$(python -c "total_epochs=float('${TOTAL_EPOCHS}'); epoch_ratio=float('${EPOCH_RATIO}'); print(max(epoch_ratio * total_epochs, 1.0))")
+        STAGE_TASK_NAME=${stage_task_prefix}_${STAGE_NAME}
+        FINAL_TASK_NAME=${STAGE_TASK_NAME}
+        mapfile -t TRACKIO_ARGS < <(build_trackio_args "${STAGE_TASK_NAME}" "${stage_task_prefix}_stages")
+
+        EXTRA_ARGS=()
+        if [[ -n "$prev_output_dir" ]]; then
+            LATEST_CHECKPOINT=$(find "$prev_output_dir" -maxdepth 1 -type d -name 'checkpoint-*' | sort -V | tail -n 1)
+            if [[ -z "$LATEST_CHECKPOINT" ]]; then
+                echo "No checkpoint found under ${prev_output_dir} for ${STAGE_NAME} resume."
+                exit 1
+            fi
+            EXTRA_ARGS+=("resume_from_checkpoint=${LATEST_CHECKPOINT}")
         fi
-        EXTRA_ARGS+=("resume_from_checkpoint=${LATEST_CHECKPOINT}")
-    fi
 
-    CUDA_VISIBLE_DEVICES=${GPU_ID} python src/train.py --config-name=unlearn.yaml \
-        experiment=unlearn/tofu/selective_idk \
-        trainer=DPO \
-        task_name=${STAGE_TASK_NAME} \
-        model=${MODEL} \
+        CUDA_VISIBLE_DEVICES=${GPU_ID} python src/train.py --config-name=unlearn.yaml \
+            experiment=unlearn/tofu/selective_idk \
+            trainer=DPO \
+            task_name=${STAGE_TASK_NAME} \
+            model=${MODEL} \
+            forget_split=${FORGET_SPLIT} \
+            retain_split=${RETAIN_SPLIT} \
+            model.model_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
+            model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
+            retain_logs_path=${RETAIN_LOGS_PATH} \
+            intra_stage_order=${intra_stage_order} \
+            selective_manifest_path=${STAGE_MANIFEST} \
+            trainer.method_args.beta=${BETA} \
+            trainer.args.per_device_train_batch_size=${PER_DEVICE_TRAIN_BATCH_SIZE} \
+            trainer.args.gradient_accumulation_steps=${GRADIENT_ACCUMULATION_STEPS} \
+            trainer.args.num_train_epochs=${STAGE_EPOCHS} \
+            trainer.args.gradient_checkpointing=true \
+            trainer.args.do_eval=false \
+            trainer.args.eval_on_start=false \
+            trainer.args.eval_strategy=no \
+            trainer.args.save_strategy=epoch \
+            trainer.args.save_total_limit=1 \
+            trainer.args.save_only_model=false \
+            trainer.args.ignore_data_skip=true \
+            "${TRACKIO_ARGS[@]}" \
+            "${EXTRA_ARGS[@]}"
+
+        prev_output_dir=saves/unlearn/${STAGE_TASK_NAME}
+    done
+
+    mapfile -t TRACKIO_ARGS < <(build_trackio_args "${FINAL_TASK_NAME}_eval" "${stage_task_prefix}_eval")
+    CUDA_VISIBLE_DEVICES=${GPU_ID} python src/eval.py \
+        experiment=eval/tofu/default.yaml \
         forget_split=${FORGET_SPLIT} \
-        retain_split=${RETAIN_SPLIT} \
-        model.model_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
-        model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
-        retain_logs_path=${RETAIN_LOGS_PATH} \
-        selective_manifest_path=${STAGE_MANIFEST} \
-        trainer.method_args.beta=${BETA} \
-        trainer.args.per_device_train_batch_size=${PER_DEVICE_TRAIN_BATCH_SIZE} \
-        trainer.args.gradient_accumulation_steps=${GRADIENT_ACCUMULATION_STEPS} \
-        trainer.args.num_train_epochs=${STAGE_EPOCHS} \
-        trainer.args.gradient_checkpointing=true \
-        trainer.args.do_eval=false \
-        trainer.args.eval_on_start=false \
-        trainer.args.eval_strategy=no \
-        trainer.args.save_strategy=epoch \
-        trainer.args.save_total_limit=1 \
-        trainer.args.save_only_model=false \
-        trainer.args.ignore_data_skip=true \
+        model=${MODEL} \
+        task_name=${FINAL_TASK_NAME} \
+        model.model_args.pretrained_model_name_or_path=saves/unlearn/${FINAL_TASK_NAME} \
+        paths.output_dir=saves/unlearn/${FINAL_TASK_NAME}/evals \
         "${TRACKIO_ARGS[@]}" \
-        "${EXTRA_ARGS[@]}"
+        retain_logs_path=${RETAIN_LOGS_PATH}
 
-    PREV_OUTPUT_DIR=saves/unlearn/${STAGE_TASK_NAME}
+    echo "Selective-DPO (${intra_stage_order}) training completed. Final stage output: ${prev_output_dir}"
+}
+
+for intra_stage_order in "${INTRA_STAGE_ORDERS[@]}"; do
+    run_selective_order "${intra_stage_order}"
 done
-
-mapfile -t TRACKIO_ARGS < <(build_trackio_args "${FINAL_TASK_NAME}_eval" "${TASK_PREFIX}_eval")
-CUDA_VISIBLE_DEVICES=${GPU_ID} python src/eval.py \
-    experiment=eval/tofu/default.yaml \
-    forget_split=${FORGET_SPLIT} \
-    model=${MODEL} \
-    task_name=${FINAL_TASK_NAME} \
-    model.model_args.pretrained_model_name_or_path=saves/unlearn/${FINAL_TASK_NAME} \
-    paths.output_dir=saves/unlearn/${FINAL_TASK_NAME}/evals \
-    "${TRACKIO_ARGS[@]}" \
-    retain_logs_path=${RETAIN_LOGS_PATH}
-
-echo "Selective-DPO training completed. Final stage output: ${PREV_OUTPUT_DIR}"

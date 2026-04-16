@@ -3,6 +3,7 @@
 - Repository-local adaptation of the selective curriculum idea applied to NPO.
 - Method base: OpenUnlearning TOFU unlearning with a difficulty-aware, staged forget schedule.
 - Selective data ordering is built from held-out reference folds, then used to train staged unlearning runs from easy to hard.
+- Optional control: set `INTRA_STAGE_ORDER=difficulty_strict` to keep stage coverage unchanged while forcing each stage epoch to traverse forget samples in easy-to-hard difficulty order.
 
 # Setup
 
@@ -22,10 +23,11 @@
   - score difficulty
   - stage forget samples
   - run selective unlearning
+  - optional strict-order control inside each stage via `INTRA_STAGE_ORDER`
 
 # Results
 
-Run [`run.sh`](./run.sh).
+Run [`run.sh`](./run.sh). Leave `INTRA_STAGE_ORDER=random` for the current baseline, or set `INTRA_STAGE_ORDER=difficulty_strict` for the strict intra-stage ordering control.
 
 # Citation
 

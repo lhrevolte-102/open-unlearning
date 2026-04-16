@@ -4,9 +4,9 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Union
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, SequentialSampler
 from transformers import Trainer
-from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, has_length
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +16,36 @@ _EVAL_PLACEHOLDER = "_EVAL_PLACEHOLDER"
 
 
 class FinetuneTrainer(Trainer):
-    def __init__(self, evaluators=None, template_args=None, *args, **kwargs):
+    def __init__(
+        self,
+        evaluators=None,
+        template_args=None,
+        train_sampler="random",
+        *args,
+        **kwargs,
+    ):
         self.evaluators = evaluators
         self.template_args = template_args
+        self.train_sampler = train_sampler
         if kwargs.get("eval_dataset") is None and evaluators:
             kwargs["eval_dataset"] = _EVAL_PLACEHOLDER
         super().__init__(*args, **kwargs)
+
+    def _get_train_sampler(self):
+        if self.train_sampler == "random":
+            return super()._get_train_sampler()
+        if self.train_sampler == "sequential":
+            if self.args.group_by_length:
+                raise ValueError(
+                    "train_sampler=sequential is incompatible with group_by_length=true"
+                )
+            if self.train_dataset is None or not has_length(self.train_dataset):
+                return None
+            return SequentialSampler(self.train_dataset)
+
+        raise ValueError(
+            f"Unsupported train_sampler '{self.train_sampler}', expected 'random' or 'sequential'"
+        )
 
     def evaluate(
         self,

@@ -10,11 +10,14 @@ from unittest.mock import patch
 import datasets
 import torch
 from omegaconf import OmegaConf
+from torch.utils.data import RandomSampler, SequentialSampler
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from data.qa import QADataset, QAwithAlternateDataset, QAwithIdkDataset
+from data.utils import load_allowed_indices
+from selective.runtime import apply_intra_stage_ordering
 from selective.utils import (
     build_fold_manifests,
     build_reference_manifest,
@@ -23,6 +26,7 @@ from selective.utils import (
 )
 from selective.score import build_difficulty_payload, compute_unlearning_forget_losses
 from selective_prepare import prepare_difficulty_payload
+from trainer.base import FinetuneTrainer
 
 
 def _fake_preprocess_chat_instance(
@@ -163,6 +167,45 @@ class SelectiveTests(unittest.TestCase):
         self.assertEqual(len(qa_dataset), 2)
         self.assertEqual(qa_dataset.data["index"], [0, 2])
 
+    def test_load_allowed_indices_can_preserve_manifest_order(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "stage1.json"
+            manifest_path.write_text(
+                json.dumps({"allowed_indices": [2, 0, 2, 1]}), encoding="utf-8"
+            )
+
+            self.assertEqual(load_allowed_indices(manifest_path), [0, 1, 2])
+            self.assertEqual(
+                load_allowed_indices(manifest_path, preserve_order=True), [2, 0, 1]
+            )
+
+    def test_qa_dataset_preserves_manifest_order_when_requested(self):
+        dataset = datasets.Dataset.from_dict(
+            {
+                "question": ["q0", "q1", "q2"],
+                "answer": ["a0", "a1", "a2"],
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = Path(tmp_dir) / "stage1.json"
+            manifest_path.write_text(
+                json.dumps({"allowed_indices": [2, 0, 2, 1]}), encoding="utf-8"
+            )
+
+            with patch("data.qa.load_hf_dataset", return_value=dataset), patch(
+                "data.qa.preprocess_chat_instance", _fake_preprocess_chat_instance
+            ):
+                qa_dataset = QADataset(
+                    hf_args={"path": "unused"},
+                    template_args=_make_template_args(),
+                    tokenizer=None,
+                    allowed_indices_path=manifest_path,
+                    preserve_manifest_order=True,
+                )
+
+        self.assertEqual(len(qa_dataset), 3)
+        self.assertEqual(qa_dataset.data["index"], [2, 0, 1])
+
     def test_idk_dataset_deterministic_sampling_and_index(self):
         dataset = datasets.Dataset.from_dict({"question": ["q0"], "answer": ["a0"]})
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -281,6 +324,109 @@ class SelectiveTests(unittest.TestCase):
         )
         self.assertEqual(manifests[2]["allowed_indices"], [0, 2, 1, 3])
 
+    def test_apply_intra_stage_ordering_sets_dataset_and_sampler(self):
+        cfg = OmegaConf.create(
+            {
+                "intra_stage_order": "difficulty_strict",
+                "data": {
+                    "anchor": "forget",
+                    "forget": {
+                        "TOFU_QA_forget_idk": {
+                            "args": {
+                                "allowed_indices_path": "stage1.json",
+                                "preserve_manifest_order": False,
+                            }
+                        }
+                    },
+                },
+                "trainer": {
+                    "train_sampler": "random",
+                    "args": {"group_by_length": False},
+                },
+            }
+        )
+
+        with patch.dict("os.environ", {"WORLD_SIZE": "1"}, clear=False), patch(
+            "selective.runtime.torch.cuda.device_count", return_value=1
+        ):
+            apply_intra_stage_ordering(cfg)
+
+        self.assertEqual(cfg.trainer.train_sampler, "sequential")
+        self.assertTrue(
+            cfg.data.forget.TOFU_QA_forget_idk.args.preserve_manifest_order
+        )
+
+    def test_apply_intra_stage_ordering_rejects_non_forget_anchor(self):
+        cfg = OmegaConf.create(
+            {
+                "intra_stage_order": "difficulty_strict",
+                "data": {
+                    "anchor": "retain",
+                    "forget": {"TOFU_QA_forget_idk": {"args": {}}},
+                },
+                "trainer": {
+                    "train_sampler": "random",
+                    "args": {"group_by_length": False},
+                },
+            }
+        )
+
+        with patch("selective.runtime.torch.cuda.device_count", return_value=1):
+            with self.assertRaisesRegex(ValueError, "data.anchor=forget"):
+                apply_intra_stage_ordering(cfg)
+
+    def test_apply_intra_stage_ordering_rejects_group_by_length(self):
+        cfg = OmegaConf.create(
+            {
+                "intra_stage_order": "difficulty_strict",
+                "data": {
+                    "anchor": "forget",
+                    "forget": {"TOFU_QA_forget_idk": {"args": {}}},
+                },
+                "trainer": {
+                    "train_sampler": "random",
+                    "args": {"group_by_length": True},
+                },
+            }
+        )
+
+        with patch("selective.runtime.torch.cuda.device_count", return_value=1):
+            with self.assertRaisesRegex(ValueError, "group_by_length"):
+                apply_intra_stage_ordering(cfg)
+
+    def test_apply_intra_stage_ordering_rejects_multi_process(self):
+        cfg = OmegaConf.create(
+            {
+                "intra_stage_order": "difficulty_strict",
+                "data": {
+                    "anchor": "forget",
+                    "forget": {"TOFU_QA_forget_idk": {"args": {}}},
+                },
+                "trainer": {
+                    "train_sampler": "random",
+                    "args": {"group_by_length": False},
+                },
+            }
+        )
+
+        with patch.dict("os.environ", {"WORLD_SIZE": "2"}, clear=False), patch(
+            "selective.runtime.torch.cuda.device_count", return_value=1
+        ):
+            with self.assertRaisesRegex(ValueError, "single-process"):
+                apply_intra_stage_ordering(cfg)
+
+    def test_finetune_trainer_uses_configured_train_sampler(self):
+        trainer = object.__new__(FinetuneTrainer)
+        trainer.train_dataset = [0, 1, 2]
+        trainer.args = SimpleNamespace(group_by_length=False)
+        trainer.processing_class = None
+
+        trainer.train_sampler = "sequential"
+        self.assertIsInstance(trainer._get_train_sampler(), SequentialSampler)
+
+        trainer.train_sampler = "random"
+        self.assertIsInstance(trainer._get_train_sampler(), RandomSampler)
+
     def test_prepare_difficulty_payload_reads_reference_manifest(self):
         dataset = datasets.Dataset.from_dict(
             {
@@ -380,11 +526,11 @@ class SelectiveTests(unittest.TestCase):
 
     def test_selective_scripts_have_valid_bash_syntax(self):
         subprocess.run(
-            ["bash", "-n", str(ROOT / "scripts" / "tofu_selective_unlearn.sh")],
+            ["bash", "-n", str(ROOT / "community" / "methods" / "Selective-DPO" / "run.sh")],
             check=True,
         )
         subprocess.run(
-            ["bash", "-n", str(ROOT / "scripts" / "tofu_selective_references.sh")],
+            ["bash", "-n", str(ROOT / "community" / "methods" / "Selective-NPO" / "run.sh")],
             check=True,
         )
 

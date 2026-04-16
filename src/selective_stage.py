@@ -17,12 +17,14 @@ def main(cfg: DictConfig):
 
     summary = {
         "difficulty_path": cfg.difficulty_path,
+        "intra_stage_order": cfg.intra_stage_order,
         "stage_percentiles": list(cfg.stage_percentiles),
         "stage_epoch_ratios": list(cfg.stage_epoch_ratios),
         "stages": [],
     }
 
     for manifest in manifests:
+        manifest["intra_stage_order"] = cfg.intra_stage_order
         output_path = f"{cfg.output_dir}/{manifest['stage_name']}.json"
         save_json(output_path, manifest)
         summary["stages"].append(
@@ -32,6 +34,7 @@ def main(cfg: DictConfig):
                 "num_examples": manifest["num_examples"],
                 "percentile": manifest["percentile"],
                 "epoch_ratio": manifest["epoch_ratio"],
+                "intra_stage_order": cfg.intra_stage_order,
             }
         )
 
