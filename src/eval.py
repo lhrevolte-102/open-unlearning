@@ -8,7 +8,7 @@ from trackio_utils import (
     is_trackio_enabled,
     log_trackio_metrics,
 )
-from trainer.utils import seed_everything
+from runtime_utils import seed_everything
 from model import get_model
 from evals import get_evaluators
 
