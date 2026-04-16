@@ -101,19 +101,27 @@ build_trackio_args() {
     printf '%s\n' "${args[@]}"
 }
 
+selective_output_dir() {
+    local mode="$1"
+    local task_name="$2"
+    echo "saves/${mode}/${task_name}"
+}
+
 ########################################
 # Derived paths
 ########################################
 BASE_MODEL_PATH="open-unlearning/tofu_${MODEL}_full"
 TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_dpo_random_repeated_halving"
 REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_dpo_random_repeated_halving"
+REFERENCE_TASK_NAME="${REFERENCE_TASK_PREFIX}"
+PREPARE_TASK_NAME="${TASK_PREFIX}_prepare"
 RETAIN_LOGS_PATH="saves/eval/tofu_${MODEL}_${RETAIN_SPLIT}/TOFU_EVAL.json"
-REFERENCE_DIR="saves/selective_refs/${REFERENCE_TASK_PREFIX}"
+REFERENCE_DIR=$(selective_output_dir "selective_reference" "${REFERENCE_TASK_NAME}")
 REFERENCE_SPLITS_DIR="${REFERENCE_DIR}/reference_splits"
 REFERENCE_MODELS_DIR="${REFERENCE_DIR}/models"
-REFERENCE_MANIFEST_PATH="saves/selective_refs/${REFERENCE_TASK_PREFIX}/reference_models.json"
-SELECTIVE_DIR="saves/selective/${TASK_PREFIX}"
-DIFFICULTY_PATH="${SELECTIVE_DIR}/difficulty/difficulty.json"
+REFERENCE_MANIFEST_PATH="${REFERENCE_DIR}/reference_models.json"
+PREPARE_DIR=$(selective_output_dir "selective_prepare" "${PREPARE_TASK_NAME}")
+DIFFICULTY_PATH="${PREPARE_DIR}/difficulty.json"
 
 mkdir -p "$REFERENCE_SPLITS_DIR" "$REFERENCE_MODELS_DIR" "$(dirname "$DIFFICULTY_PATH")"
 
@@ -125,7 +133,7 @@ fi
 
 python src/selective_reference.py \
     experiment=selective/tofu/idkdpo \
-    task_name=${REFERENCE_TASK_PREFIX}_reference_splits \
+    task_name=${REFERENCE_TASK_NAME} \
     model=${MODEL} \
     forget_split=${FORGET_SPLIT} \
     retain_split=${RETAIN_SPLIT} \
@@ -181,7 +189,7 @@ done
 
 python src/selective_reference.py \
     experiment=selective/tofu/idkdpo \
-    task_name=${REFERENCE_TASK_PREFIX}_reference_manifest \
+    task_name=${REFERENCE_TASK_NAME} \
     model=${MODEL} \
     forget_split=${FORGET_SPLIT} \
     retain_split=${RETAIN_SPLIT} \
@@ -200,31 +208,31 @@ if is_truthy "$RESUME" && [[ -s "$DIFFICULTY_PATH" ]]; then
 else
     python src/selective_prepare.py \
         experiment=selective/tofu/idkdpo \
-        task_name=${TASK_PREFIX}_prepare \
+        task_name=${PREPARE_TASK_NAME} \
         model=${MODEL} \
         forget_split=${FORGET_SPLIT} \
         model.model_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
         model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
         reference_manifest_path=${REFERENCE_MANIFEST_PATH} \
-        beta=${BETA} \
-        score_output_path=${DIFFICULTY_PATH}
+        beta=${BETA}
 fi
 
 run_selective_order() {
     local intra_stage_order="$1"
-    local selective_order_dir="${SELECTIVE_DIR}/${intra_stage_order}"
-    local stage_dir="${selective_order_dir}/stages"
     local stage_task_prefix="${TASK_PREFIX}_${intra_stage_order}"
+    local stage_task_name="${stage_task_prefix}_stages"
+    local stage_dir
     local prev_output_dir=""
     local final_task_name=""
     local final_output_dir=""
 
+    stage_dir="$(selective_output_dir "selective_stage" "${stage_task_name}")/stages"
+
     mkdir -p "$stage_dir"
 
     python src/selective_stage.py \
-        task_name=${stage_task_prefix}_stages \
+        task_name=${stage_task_name} \
         difficulty_path=${DIFFICULTY_PATH} \
-        output_dir=${stage_dir} \
         intra_stage_order=${intra_stage_order} \
         stage_percentiles=${STAGE_PERCENTILES} \
         stage_epoch_ratios=${STAGE_EPOCH_RATIOS}

@@ -30,6 +30,12 @@
 
 Run [`run.sh`](./run.sh). The script now runs a single intra-stage ordering mode at a time and defaults to `INTRA_STAGE_ORDER=random`. Set `INTRA_STAGE_ORDER=strict` to run the strict intra-stage ordering control.
 
+- Output layout:
+  - Reference artifacts now live under `saves/selective_reference/${REFERENCE_TASK_NAME}`.
+  - Difficulty scores now live under `saves/selective_prepare/${TASK_PREFIX}_prepare`.
+  - Stage manifests now live under `saves/selective_stage/${TASK_PREFIX}_${INTRA_STAGE_ORDER}_stages`.
+  - Stage checkpoints and final evals continue to live under `saves/unlearn/${task_name}`.
+
 - Reference split setup:
   - The script always uses repeated random 50/50 partitions and trains one reference model on each half, so every repeat yields two cross-evaluating reference models.
   - `NUM_REFERENCE_REPEATS` controls how many random partitions are used. For example, `NUM_REFERENCE_REPEATS=3` yields 3 random partitions and 6 reference models.

@@ -7,8 +7,8 @@ defaults:
   - experiment: null
 
 seed: 0
-mode: selective_refs
-task_name: selective_refs
+mode: selective_reference
+task_name: selective_reference
 trainer:
   handler: selective_reference
 method: NPO
