@@ -122,13 +122,46 @@ def log_trackio_metrics(metrics: dict[str, Any], step: int | None = None) -> Non
     trackio.log(payload, step=step)
 
 
+def _resolve_trackio_alert_level(trackio: Any, level: Any) -> Any:
+    if hasattr(level, "value"):
+        return level
+
+    alert_level_cls = getattr(trackio, "AlertLevel", None)
+    if alert_level_cls is None:
+        return level
+
+    if isinstance(level, str):
+        normalized = level.strip().lower()
+        try:
+            return alert_level_cls(normalized)
+        except ValueError:
+            logger.warning(
+                "Unknown Trackio alert level %r; defaulting to ERROR.",
+                level,
+            )
+            return alert_level_cls.ERROR
+
+    return level
+
+
 def emit_trackio_alert(title: str, text: str, level: str = "ERROR") -> None:
     trackio = _import_trackio()
-    trackio.alert(title=title, text=text, level=level)
+    try:
+        trackio.alert(
+            title=title,
+            text=text,
+            level=_resolve_trackio_alert_level(trackio, level),
+        )
+    except Exception:
+        logger.warning("Trackio alert failed.", exc_info=True)
 
 
 def finish_trackio_run() -> None:
     trackio = _import_trackio()
-    trackio.finish()
-    if hasattr(trackio, "context_vars"):
-        trackio.context_vars.current_run.set(None)
+    try:
+        trackio.finish()
+    except Exception:
+        logger.warning("Trackio run finalization failed.", exc_info=True)
+    finally:
+        if hasattr(trackio, "context_vars"):
+            trackio.context_vars.current_run.set(None)

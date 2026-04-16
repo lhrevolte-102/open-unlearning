@@ -245,6 +245,7 @@ run_selective_order() {
 
         EXTRA_ARGS=()
         LATEST_CHECKPOINT=""
+        STAGE_MODEL_PATH="${BASE_MODEL_PATH}"
         if is_truthy "$RESUME"; then
             LATEST_CHECKPOINT=$(latest_checkpoint_in_dir "$STAGE_OUTPUT_DIR")
             if [[ -n "$LATEST_CHECKPOINT" ]]; then
@@ -259,7 +260,8 @@ run_selective_order() {
                 echo "No checkpoint found under ${prev_output_dir} for ${STAGE_NAME} resume."
                 exit 1
             fi
-            EXTRA_ARGS+=("resume_from_checkpoint=${LATEST_CHECKPOINT}")
+            log "Initializing ${STAGE_NAME} (${intra_stage_order}) from previous stage model ${LATEST_CHECKPOINT}."
+            STAGE_MODEL_PATH="${LATEST_CHECKPOINT}"
         fi
 
         CUDA_VISIBLE_DEVICES=${GPU_ID} python src/train.py --config-name=unlearn.yaml \
@@ -269,7 +271,7 @@ run_selective_order() {
             model=${MODEL} \
             forget_split=${FORGET_SPLIT} \
             retain_split=${RETAIN_SPLIT} \
-            model.model_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
+            model.model_args.pretrained_model_name_or_path=${STAGE_MODEL_PATH} \
             model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
             retain_logs_path=${RETAIN_LOGS_PATH} \
             intra_stage_order=${intra_stage_order} \

@@ -2,7 +2,7 @@ import hydra
 from omegaconf import DictConfig
 from data import get_data, get_collators
 from model import get_model
-from runtime_utils import seed_everything
+from runtime_utils import configure_torch_checkpoint_safe_globals, seed_everything
 from selective.runtime import apply_intra_stage_ordering
 from trackio_utils import (
     emit_trackio_alert,
@@ -23,6 +23,9 @@ def main(cfg: DictConfig):
     """
     apply_intra_stage_ordering(cfg)
     seed_everything(cfg.trainer.args.seed)
+    resume_checkpoint = cfg.get("resume_from_checkpoint", None)
+    if resume_checkpoint:
+        configure_torch_checkpoint_safe_globals()
     mode = cfg.get("mode", "train")
     model_cfg = cfg.model
     template_args = model_cfg.template_args
@@ -73,7 +76,7 @@ def main(cfg: DictConfig):
 
     try:
         if trainer_args.do_train:
-            trainer.train(resume_from_checkpoint=cfg.get("resume_from_checkpoint", None))
+            trainer.train(resume_from_checkpoint=resume_checkpoint)
             trainer.save_state()
             trainer.save_model(trainer_args.output_dir)
 

@@ -5,9 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import datasets
+import numpy as np
 import torch
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
@@ -18,6 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from data.qa import QADataset, QAwithAlternateDataset, QAwithIdkDataset
 from data.utils import load_allowed_indices
+from runtime_utils import configure_torch_checkpoint_safe_globals
 from selective.runtime import apply_intra_stage_ordering
 from selective.utils import (
     build_fold_manifests,
@@ -27,6 +29,7 @@ from selective.utils import (
 )
 from selective.score import build_difficulty_payload, compute_unlearning_forget_losses
 from selective_prepare import prepare_difficulty_payload
+from trackio_utils import emit_trackio_alert
 from trainer.base import FinetuneTrainer
 
 
@@ -86,6 +89,51 @@ def _make_logits(preferred_tokens):
 
 
 class SelectiveTests(unittest.TestCase):
+    def test_configure_torch_checkpoint_safe_globals_allows_numpy_rng_load(self):
+        clear_safe_globals = getattr(torch.serialization, "clear_safe_globals", None)
+        if clear_safe_globals is None:
+            self.skipTest("torch.serialization.clear_safe_globals is unavailable")
+
+        numpy_rng_payload = {"numpy": np.random.get_state()}
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            checkpoint_path = Path(tmp_dir) / "rng_state.pth"
+            torch.save(numpy_rng_payload, checkpoint_path)
+
+            clear_safe_globals()
+            with self.assertRaises(Exception):
+                torch.load(checkpoint_path, weights_only=True)
+
+            configure_torch_checkpoint_safe_globals()
+            restored = torch.load(checkpoint_path, weights_only=True)
+
+        self.assertIn("numpy", restored)
+
+    def test_emit_trackio_alert_converts_string_level_to_enum(self):
+        class _FakeAlertLevel:
+            ERROR = "enum-error"
+
+            def __call__(self, value):
+                return f"enum-{value}"
+
+        fake_trackio = SimpleNamespace(
+            AlertLevel=_FakeAlertLevel(),
+            alert=lambda **kwargs: self.assertEqual(kwargs["level"], "enum-error"),
+        )
+
+        with patch("trackio_utils._import_trackio", return_value=fake_trackio):
+            emit_trackio_alert("title", "text", level="ERROR")
+
+    def test_emit_trackio_alert_does_not_mask_original_failures(self):
+        alert_mock = Mock(side_effect=RuntimeError("trackio down"))
+        fake_trackio = SimpleNamespace(
+            AlertLevel=SimpleNamespace(ERROR="enum-error"),
+            alert=alert_mock,
+        )
+
+        with patch("trackio_utils._import_trackio", return_value=fake_trackio):
+            emit_trackio_alert("title", "text", level="ERROR")
+
     def test_reference_fold_manifests_partition_dataset(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             fold_manifests = build_fold_manifests(
@@ -588,6 +636,25 @@ class SelectiveTests(unittest.TestCase):
         self.assertIn("+trainer.args.save_total_limit=1", npo_script)
         self.assertIn("+trainer.args.ignore_data_skip=true", dpo_script)
         self.assertIn("+trainer.args.ignore_data_skip=true", npo_script)
+
+    def test_selective_scripts_warm_start_next_stage_from_previous_model(self):
+        dpo_script = (
+            ROOT / "community" / "methods" / "Selective-DPO" / "run.sh"
+        ).read_text(encoding="utf-8")
+        npo_script = (
+            ROOT / "community" / "methods" / "Selective-NPO" / "run.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('STAGE_MODEL_PATH="${BASE_MODEL_PATH}"', dpo_script)
+        self.assertIn('STAGE_MODEL_PATH="${BASE_MODEL_PATH}"', npo_script)
+        self.assertIn(
+            'model.model_args.pretrained_model_name_or_path=${STAGE_MODEL_PATH}',
+            dpo_script,
+        )
+        self.assertIn(
+            'model.model_args.pretrained_model_name_or_path=${STAGE_MODEL_PATH}',
+            npo_script,
+        )
 
 
 if __name__ == "__main__":
