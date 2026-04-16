@@ -13,9 +13,9 @@ def apply_intra_stage_ordering(cfg):
         return cfg
 
     mode = cfg.get("intra_stage_order", "random")
-    if mode not in {"random", "difficulty_strict"}:
+    if mode not in {"random", "strict"}:
         raise ValueError(
-            f"Unsupported intra_stage_order '{mode}', expected 'random' or 'difficulty_strict'"
+            f"Unsupported intra_stage_order '{mode}', expected 'random' or 'strict'"
         )
 
     if "trainer" in cfg:
@@ -33,23 +33,21 @@ def apply_intra_stage_ordering(cfg):
         return cfg
 
     if data_cfg is None or data_cfg.get("anchor") != "forget":
-        raise ValueError(
-            "intra_stage_order=difficulty_strict requires data.anchor=forget"
-        )
+        raise ValueError("intra_stage_order=strict requires data.anchor=forget")
 
     if cfg.trainer.args.get("group_by_length", False):
         raise ValueError(
-            "intra_stage_order=difficulty_strict is incompatible with trainer.args.group_by_length=true"
+            "intra_stage_order=strict is incompatible with trainer.args.group_by_length=true"
         )
 
     if _get_visible_world_size() != 1:
         raise ValueError(
-            "intra_stage_order=difficulty_strict currently supports only single-process training"
+            "intra_stage_order=strict currently supports only single-process training"
         )
 
     if torch.cuda.device_count() > 1:
         raise ValueError(
-            "intra_stage_order=difficulty_strict currently supports only a single visible GPU"
+            "intra_stage_order=strict currently supports only a single visible GPU"
         )
 
     if "trainer" in cfg:

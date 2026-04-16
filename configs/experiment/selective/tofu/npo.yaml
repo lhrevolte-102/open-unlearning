@@ -11,7 +11,8 @@ model:
 forget_split: forget10
 method: NPO
 beta: 0.1
-num_folds: 4
+num_repeats: 3
+repeat_split_seed: 0
 
 data:
   TOFU_QA_forget:

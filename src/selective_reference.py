@@ -3,7 +3,11 @@ from omegaconf import DictConfig
 
 from data import get_datasets
 from runtime_utils import seed_everything
-from selective.utils import build_fold_manifests, build_reference_manifest, save_json
+from selective.utils import (
+    build_reference_manifest,
+    build_reference_split_manifests,
+    save_json,
+)
 
 
 def build_reference_artifacts(cfg: DictConfig):
@@ -19,35 +23,41 @@ def build_reference_artifacts(cfg: DictConfig):
         )
 
     all_indices = [int(idx) for idx in dataset.data["index"]]
-    fold_manifests = build_fold_manifests(
+    reference_split_manifests = build_reference_split_manifests(
         all_indices=all_indices,
-        num_folds=cfg.num_folds,
-        fold_assignment_seed=cfg.fold_assignment_seed,
-        output_dir=cfg.folds_output_dir,
+        output_dir=cfg.reference_splits_output_dir,
+        num_repeats=cfg.num_repeats,
+        repeat_split_seed=cfg.repeat_split_seed,
     )
 
-    folds_summary = {
+    reference_splits_summary = {
         "metadata": {
             "method": cfg.method,
             "model": cfg.model.model_args.pretrained_model_name_or_path,
             "forget_split": cfg.get("forget_split", None),
             "retain_split": cfg.get("retain_split", None),
-            "num_folds": cfg.num_folds,
-            "fold_assignment_seed": cfg.fold_assignment_seed,
+            "reference_split_strategy": "random_repeated_halving",
+            "num_repeats": cfg.num_repeats,
+            "repeat_split_seed": cfg.repeat_split_seed,
             "all_indices": all_indices,
         },
-        "folds": [
+        "reference_splits": [
             {
-                "fold_id": fold["fold_id"],
-                "train_manifest_path": fold["train_manifest_path"],
-                "heldout_manifest_path": fold["heldout_manifest_path"],
-                "num_train_examples": len(fold["train_indices"]),
-                "num_heldout_examples": len(fold["heldout_indices"]),
+                "split_id": split["split_id"],
+                "split_name": split["split_name"],
+                "reference_split_strategy": split["reference_split_strategy"],
+                "split_seed": split["split_seed"],
+                "repeat_id": split.get("repeat_id", None),
+                "partition_id": split.get("partition_id", None),
+                "train_manifest_path": split["train_manifest_path"],
+                "heldout_manifest_path": split["heldout_manifest_path"],
+                "num_train_examples": len(split["train_indices"]),
+                "num_heldout_examples": len(split["heldout_indices"]),
             }
-            for fold in fold_manifests
+            for split in reference_split_manifests
         ],
     }
-    save_json(cfg.folds_summary_path, folds_summary)
+    save_json(cfg.reference_splits_summary_path, reference_splits_summary)
 
     reference_manifest = build_reference_manifest(
         metadata={
@@ -55,16 +65,17 @@ def build_reference_artifacts(cfg: DictConfig):
             "model": cfg.model.model_args.pretrained_model_name_or_path,
             "forget_split": cfg.get("forget_split", None),
             "retain_split": cfg.get("retain_split", None),
-            "num_folds": cfg.num_folds,
-            "fold_assignment_seed": cfg.fold_assignment_seed,
+            "reference_split_strategy": "random_repeated_halving",
+            "num_repeats": cfg.num_repeats,
+            "repeat_split_seed": cfg.repeat_split_seed,
             "all_indices": all_indices,
         },
-        fold_manifests=fold_manifests,
+        reference_split_manifests=reference_split_manifests,
         checkpoint_root_dir=cfg.checkpoint_root_dir,
         reference_manifest_output_path=cfg.reference_manifest_output_path,
         validate_checkpoint_paths=cfg.validate_checkpoint_paths,
     )
-    return folds_summary, reference_manifest
+    return reference_splits_summary, reference_manifest
 
 
 @hydra.main(

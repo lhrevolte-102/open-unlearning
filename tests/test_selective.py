@@ -22,10 +22,9 @@ from data.utils import load_allowed_indices
 from runtime_utils import configure_torch_checkpoint_safe_globals
 from selective.runtime import apply_intra_stage_ordering
 from selective.utils import (
-    build_fold_manifests,
     build_reference_manifest,
+    build_reference_split_manifests,
     build_stage_manifests,
-    load_json,
 )
 from selective.score import build_difficulty_payload, compute_unlearning_forget_losses
 from selective_prepare import prepare_difficulty_payload
@@ -134,40 +133,18 @@ class SelectiveTests(unittest.TestCase):
         with patch("trackio_utils._import_trackio", return_value=fake_trackio):
             emit_trackio_alert("title", "text", level="ERROR")
 
-    def test_reference_fold_manifests_partition_dataset(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            fold_manifests = build_fold_manifests(
-                all_indices=[0, 1, 2, 3, 4, 5],
-                num_folds=3,
-                fold_assignment_seed=0,
-                output_dir=tmp_dir,
-            )
-
-            heldout_union = set()
-            for fold_manifest in fold_manifests:
-                train_payload = load_json(fold_manifest["train_manifest_path"])
-                heldout_payload = load_json(fold_manifest["heldout_manifest_path"])
-                train_indices = set(train_payload["allowed_indices"])
-                heldout_indices = set(heldout_payload["allowed_indices"])
-
-                self.assertFalse(train_indices & heldout_indices)
-                self.assertEqual(train_indices | heldout_indices, set(range(6)))
-                heldout_union |= heldout_indices
-
-            self.assertEqual(heldout_union, set(range(6)))
-
     def test_reference_manifest_contains_expected_records(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             models_dir = tmp_path / "models"
-            for fold_id in range(2):
-                (models_dir / f"fold{fold_id}").mkdir(parents=True, exist_ok=True)
+            for split_id in range(2):
+                (models_dir / f"split{split_id}").mkdir(parents=True, exist_ok=True)
 
-            fold_manifests = build_fold_manifests(
+            split_manifests = build_reference_split_manifests(
                 all_indices=[0, 1, 2, 3],
-                num_folds=2,
-                fold_assignment_seed=0,
                 output_dir=tmp_path / "folds",
+                num_repeats=1,
+                repeat_split_seed=0,
             )
             reference_manifest = build_reference_manifest(
                 metadata={
@@ -175,10 +152,12 @@ class SelectiveTests(unittest.TestCase):
                     "model": "base-model",
                     "forget_split": "forget10",
                     "retain_split": "retain90",
-                    "num_folds": 2,
+                    "reference_split_strategy": "random_repeated_halving",
+                    "num_repeats": 1,
+                    "repeat_split_seed": 0,
                     "all_indices": [0, 1, 2, 3],
                 },
-                fold_manifests=fold_manifests,
+                reference_split_manifests=split_manifests,
                 checkpoint_root_dir=models_dir,
                 reference_manifest_output_path=tmp_path / "reference_models.json",
                 validate_checkpoint_paths=True,
@@ -187,8 +166,70 @@ class SelectiveTests(unittest.TestCase):
             self.assertEqual(reference_manifest["metadata"]["num_reference_models"], 2)
             self.assertEqual(len(reference_manifest["references"]), 2)
             self.assertTrue(
-                reference_manifest["references"][0]["checkpoint_path"].endswith("fold0")
+                reference_manifest["references"][0]["checkpoint_path"].endswith("split0")
             )
+            self.assertEqual(
+                reference_manifest["references"][0]["reference_split_strategy"],
+                "random_repeated_halving",
+            )
+
+    def test_random_repeated_halving_manifests_cover_full_dataset_per_repeat(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            split_manifests = build_reference_split_manifests(
+                all_indices=list(range(7)),
+                output_dir=tmp_dir,
+                num_repeats=3,
+                repeat_split_seed=11,
+            )
+
+        self.assertEqual(len(split_manifests), 6)
+        heldout_counts = {idx: 0 for idx in range(7)}
+        for repeat_id in range(3):
+            repeat_splits = [
+                split for split in split_manifests if split["repeat_id"] == repeat_id
+            ]
+            self.assertEqual(len(repeat_splits), 2)
+
+            part0 = next(split for split in repeat_splits if split["partition_id"] == 0)
+            part1 = next(split for split in repeat_splits if split["partition_id"] == 1)
+
+            self.assertEqual(part0["split_id"], repeat_id * 2)
+            self.assertEqual(part1["split_id"], repeat_id * 2 + 1)
+            self.assertEqual(part0["split_seed"], 11 + repeat_id)
+            self.assertEqual(part1["split_seed"], 11 + repeat_id)
+            self.assertEqual(
+                part0["reference_split_strategy"],
+                "random_repeated_halving",
+            )
+            self.assertEqual(
+                part1["reference_split_strategy"],
+                "random_repeated_halving",
+            )
+            self.assertEqual(
+                set(part0["train_indices"]) | set(part0["heldout_indices"]),
+                set(range(7)),
+            )
+            self.assertFalse(
+                set(part0["train_indices"]) & set(part0["heldout_indices"])
+            )
+            self.assertEqual(part0["train_indices"], part1["heldout_indices"])
+            self.assertEqual(part1["train_indices"], part0["heldout_indices"])
+
+            for idx in part0["heldout_indices"]:
+                heldout_counts[idx] += 1
+            for idx in part1["heldout_indices"]:
+                heldout_counts[idx] += 1
+
+        self.assertTrue(all(count == 3 for count in heldout_counts.values()))
+
+    def test_random_repeated_halving_requires_explicit_repeat_count(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertRaisesRegex(ValueError, "num_repeats must be explicitly set"):
+                build_reference_split_manifests(
+                    all_indices=[0, 1, 2, 3],
+                    output_dir=tmp_dir,
+                    num_repeats=None,
+                )
 
     def test_qa_dataset_filters_allowed_indices(self):
         dataset = datasets.Dataset.from_dict(
@@ -403,6 +444,7 @@ class SelectiveTests(unittest.TestCase):
         )
 
         scores = payload["scores_by_index"]
+        self.assertEqual(scores["0"]["num_refs"], 2)
         self.assertLess(scores["0"]["rank"], scores["2"]["rank"])
         self.assertLess(scores["2"]["rank"], scores["1"]["rank"])
         self.assertEqual(manifests[0]["allowed_indices"], [0, 2])
@@ -417,7 +459,7 @@ class SelectiveTests(unittest.TestCase):
     def test_apply_intra_stage_ordering_sets_dataset_and_sampler(self):
         cfg = OmegaConf.create(
             {
-                "intra_stage_order": "difficulty_strict",
+                "intra_stage_order": "strict",
                 "data": {
                     "anchor": "forget",
                     "forget": {
@@ -449,7 +491,7 @@ class SelectiveTests(unittest.TestCase):
     def test_apply_intra_stage_ordering_rejects_non_forget_anchor(self):
         cfg = OmegaConf.create(
             {
-                "intra_stage_order": "difficulty_strict",
+                "intra_stage_order": "strict",
                 "data": {
                     "anchor": "retain",
                     "forget": {"TOFU_QA_forget_idk": {"args": {}}},
@@ -468,7 +510,7 @@ class SelectiveTests(unittest.TestCase):
     def test_apply_intra_stage_ordering_rejects_group_by_length(self):
         cfg = OmegaConf.create(
             {
-                "intra_stage_order": "difficulty_strict",
+                "intra_stage_order": "strict",
                 "data": {
                     "anchor": "forget",
                     "forget": {"TOFU_QA_forget_idk": {"args": {}}},
@@ -487,7 +529,7 @@ class SelectiveTests(unittest.TestCase):
     def test_apply_intra_stage_ordering_rejects_multi_process(self):
         cfg = OmegaConf.create(
             {
-                "intra_stage_order": "difficulty_strict",
+                "intra_stage_order": "strict",
                 "data": {
                     "anchor": "forget",
                     "forget": {"TOFU_QA_forget_idk": {"args": {}}},
@@ -527,14 +569,14 @@ class SelectiveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
             models_dir = tmp_path / "models"
-            for fold_id in range(2):
-                (models_dir / f"fold{fold_id}").mkdir(parents=True, exist_ok=True)
+            for split_id in range(2):
+                (models_dir / f"split{split_id}").mkdir(parents=True, exist_ok=True)
 
-            fold_manifests = build_fold_manifests(
+            split_manifests = build_reference_split_manifests(
                 all_indices=[0, 1, 2, 3],
-                num_folds=2,
-                fold_assignment_seed=0,
                 output_dir=tmp_path / "folds",
+                num_repeats=1,
+                repeat_split_seed=0,
             )
             reference_manifest_path = tmp_path / "reference_models.json"
             build_reference_manifest(
@@ -543,10 +585,12 @@ class SelectiveTests(unittest.TestCase):
                     "model": "base-model",
                     "forget_split": "forget10",
                     "retain_split": "retain90",
-                    "num_folds": 2,
+                    "reference_split_strategy": "random_repeated_halving",
+                    "num_repeats": 1,
+                    "repeat_split_seed": 0,
                     "all_indices": [0, 1, 2, 3],
                 },
-                fold_manifests=fold_manifests,
+                reference_split_manifests=split_manifests,
                 checkpoint_root_dir=models_dir,
                 reference_manifest_output_path=reference_manifest_path,
                 validate_checkpoint_paths=True,
@@ -600,8 +644,8 @@ class SelectiveTests(unittest.TestCase):
                 )
 
             expected_subsets = [
-                fold_manifests[0]["heldout_indices"],
-                fold_manifests[1]["heldout_indices"],
+                split_manifests[0]["heldout_indices"],
+                split_manifests[1]["heldout_indices"],
             ]
             self.assertEqual(seen_subsets, expected_subsets)
             self.assertEqual(
@@ -609,6 +653,8 @@ class SelectiveTests(unittest.TestCase):
                 str(reference_manifest_path),
             )
             self.assertEqual(difficulty_payload["metadata"]["num_reference_models"], 2)
+            self.assertEqual(difficulty_payload["metadata"]["num_unscored_examples"], 0)
+            self.assertEqual(difficulty_payload["metadata"]["coverage_fraction"], 1.0)
             self.assertEqual(
                 sorted(int(idx) for idx in difficulty_payload["scores_by_index"].keys()),
                 [0, 1, 2, 3],
@@ -636,6 +682,10 @@ class SelectiveTests(unittest.TestCase):
         self.assertIn("+trainer.args.save_total_limit=1", npo_script)
         self.assertIn("+trainer.args.ignore_data_skip=true", dpo_script)
         self.assertIn("+trainer.args.ignore_data_skip=true", npo_script)
+        self.assertIn('NUM_REFERENCE_REPEATS="${NUM_REFERENCE_REPEATS:-3}"', dpo_script)
+        self.assertIn('NUM_REFERENCE_REPEATS="${NUM_REFERENCE_REPEATS:-3}"', npo_script)
+        self.assertIn('INTRA_STAGE_ORDER="${INTRA_STAGE_ORDER:-random}"', dpo_script)
+        self.assertIn('INTRA_STAGE_ORDER="${INTRA_STAGE_ORDER:-random}"', npo_script)
 
     def test_selective_scripts_warm_start_next_stage_from_previous_model(self):
         dpo_script = (
@@ -655,6 +705,41 @@ class SelectiveTests(unittest.TestCase):
             'model.model_args.pretrained_model_name_or_path=${STAGE_MODEL_PATH}',
             npo_script,
         )
+
+    def test_selective_scripts_isolate_outputs_by_reference_split_strategy(self):
+        dpo_script = (
+            ROOT / "community" / "methods" / "Selective-DPO" / "run.sh"
+        ).read_text(encoding="utf-8")
+        npo_script = (
+            ROOT / "community" / "methods" / "Selective-NPO" / "run.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_dpo_random_repeated_halving"',
+            dpo_script,
+        )
+        self.assertIn(
+            'REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_dpo_random_repeated_halving"',
+            dpo_script,
+        )
+        self.assertIn(
+            'REFERENCE_SPLITS_DIR="${REFERENCE_DIR}/reference_splits"',
+            dpo_script,
+        )
+        self.assertIn(
+            'TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_npo_random_repeated_halving"',
+            npo_script,
+        )
+        self.assertIn(
+            'REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_npo_random_repeated_halving"',
+            npo_script,
+        )
+        self.assertIn(
+            'REFERENCE_SPLITS_DIR="${REFERENCE_DIR}/reference_splits"',
+            npo_script,
+        )
+        self.assertIn('run_selective_order "${INTRA_STAGE_ORDER}"', dpo_script)
+        self.assertIn('run_selective_order "${INTRA_STAGE_ORDER}"', npo_script)
 
 
 if __name__ == "__main__":

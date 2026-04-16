@@ -12,11 +12,11 @@ task_name: selective_refs
 trainer:
   handler: selective_reference
 method: NPO
-num_folds: 4
-fold_assignment_seed: 0
+num_repeats: ???
+repeat_split_seed: 0
 retain_split: retain90
-folds_output_dir: ${paths.output_dir}/folds
-folds_summary_path: ${paths.output_dir}/folds/folds.json
+reference_splits_output_dir: ${paths.output_dir}/reference_splits
+reference_splits_summary_path: ${paths.output_dir}/reference_splits/reference_splits.json
 checkpoint_root_dir: ${paths.output_dir}/models
 reference_manifest_output_path: ${paths.output_dir}/reference_models.json
 validate_checkpoint_paths: false

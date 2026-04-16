@@ -1,4 +1,5 @@
 import gc
+import warnings
 
 import hydra
 import torch
@@ -71,7 +72,12 @@ def prepare_difficulty_payload(
 
         scored_reference_specs.append(
             {
-                "fold_id": reference_spec["fold_id"],
+                "split_id": reference_spec["split_id"],
+                "split_name": reference_spec["split_name"],
+                "reference_split_strategy": reference_spec["reference_split_strategy"],
+                "split_seed": reference_spec["split_seed"],
+                "repeat_id": reference_spec.get("repeat_id", None),
+                "partition_id": reference_spec.get("partition_id", None),
                 "checkpoint_path": reference_spec["checkpoint_path"],
                 "heldout_manifest_path": reference_spec["heldout_manifest_path"],
                 "num_examples": len(heldout_indices),
@@ -81,6 +87,16 @@ def prepare_difficulty_payload(
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+    scored_indices = sorted(int(idx) for idx in score_records.keys())
+    unscored_indices = sorted(set(all_indices) - set(scored_indices))
+    if unscored_indices:
+        warnings.warn(
+            "Difficulty scoring left some forget examples unscored; "
+            f"{len(unscored_indices)} examples will fall back to deterministic tail "
+            "ordering in stage construction.",
+            stacklevel=2,
+        )
 
     difficulty_payload = build_difficulty_payload(
         score_records=score_records,
@@ -93,6 +109,12 @@ def prepare_difficulty_payload(
             "reference_metadata": reference_manifest["metadata"],
             "references": scored_reference_specs,
             "all_indices": all_indices,
+            "num_scored_examples": len(scored_indices),
+            "num_unscored_examples": len(unscored_indices),
+            "coverage_fraction": (
+                float(len(scored_indices) / len(all_indices)) if all_indices else 0.0
+            ),
+            "unscored_indices": unscored_indices,
         },
     )
     return difficulty_payload

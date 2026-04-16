@@ -16,14 +16,12 @@ RETAIN_SPLIT="retain90"
 TOTAL_EPOCHS=10
 STAGE_PERCENTILES='[0.3,0.6,1.0]'
 STAGE_EPOCH_RATIOS='[0.3,0.3,0.4]'
-INTRA_STAGE_ORDERS_RAW="${INTRA_STAGE_ORDERS:-random difficulty_strict}"
-unset INTRA_STAGE_ORDERS
-read -r -a INTRA_STAGE_ORDERS <<< "${INTRA_STAGE_ORDERS_RAW}"
+INTRA_STAGE_ORDER="${INTRA_STAGE_ORDER:-random}"
 BETA=0.1
 PER_DEVICE_TRAIN_BATCH_SIZE=16
 GRADIENT_ACCUMULATION_STEPS=4
-NUM_FOLDS=4
-FOLD_ASSIGNMENT_SEED=0
+NUM_REFERENCE_REPEATS="${NUM_REFERENCE_REPEATS:-3}"
+REPEAT_SPLIT_SEED="${REPEAT_SPLIT_SEED:-0}"
 
 GPU_ID="0"
 RESUME="${RESUME:-true}"
@@ -107,55 +105,59 @@ build_trackio_args() {
 # Derived paths
 ########################################
 BASE_MODEL_PATH="open-unlearning/tofu_${MODEL}_full"
-TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_dpo"
-REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_dpo"
+TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_dpo_random_repeated_halving"
+REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_dpo_random_repeated_halving"
 RETAIN_LOGS_PATH="saves/eval/tofu_${MODEL}_${RETAIN_SPLIT}/TOFU_EVAL.json"
 REFERENCE_DIR="saves/selective_refs/${REFERENCE_TASK_PREFIX}"
-FOLDS_DIR="${REFERENCE_DIR}/folds"
+REFERENCE_SPLITS_DIR="${REFERENCE_DIR}/reference_splits"
 REFERENCE_MODELS_DIR="${REFERENCE_DIR}/models"
 REFERENCE_MANIFEST_PATH="saves/selective_refs/${REFERENCE_TASK_PREFIX}/reference_models.json"
 SELECTIVE_DIR="saves/selective/${TASK_PREFIX}"
 DIFFICULTY_PATH="${SELECTIVE_DIR}/difficulty/difficulty.json"
 
-mkdir -p "$FOLDS_DIR" "$REFERENCE_MODELS_DIR" "$(dirname "$DIFFICULTY_PATH")"
+mkdir -p "$REFERENCE_SPLITS_DIR" "$REFERENCE_MODELS_DIR" "$(dirname "$DIFFICULTY_PATH")"
 
 if is_truthy "$RESUME"; then
-    log "Resume mode enabled. Completed reference folds, difficulty scoring, stage training, and evals will be skipped."
+    log "Resume mode enabled. Completed reference split training, difficulty scoring, stage training, and evals will be skipped."
 else
     log "Resume mode disabled. Existing outputs will be reused only when the underlying command does so implicitly."
 fi
 
 python src/selective_reference.py \
     experiment=selective/tofu/idkdpo \
-    task_name=${REFERENCE_TASK_PREFIX}_folds \
+    task_name=${REFERENCE_TASK_PREFIX}_reference_splits \
     model=${MODEL} \
     forget_split=${FORGET_SPLIT} \
     retain_split=${RETAIN_SPLIT} \
     model.model_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
     model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
-    num_folds=${NUM_FOLDS} \
-    fold_assignment_seed=${FOLD_ASSIGNMENT_SEED} \
-    folds_output_dir=${FOLDS_DIR} \
-    folds_summary_path=${FOLDS_DIR}/folds.json \
+    reference_splits_output_dir=${REFERENCE_SPLITS_DIR} \
+    reference_splits_summary_path=${REFERENCE_SPLITS_DIR}/reference_splits.json \
     checkpoint_root_dir=${REFERENCE_MODELS_DIR} \
     reference_manifest_output_path=${REFERENCE_MANIFEST_PATH} \
+    num_repeats=${NUM_REFERENCE_REPEATS} \
+    repeat_split_seed=${REPEAT_SPLIT_SEED} \
     validate_checkpoint_paths=false
 
-for (( fold_id=0; fold_id<NUM_FOLDS; fold_id++ )); do
-    TRAIN_MANIFEST=${FOLDS_DIR}/fold${fold_id}_train.json
-    FOLD_TASK_NAME=${REFERENCE_TASK_PREFIX}_fold${fold_id}
-    FOLD_OUTPUT_DIR=${REFERENCE_MODELS_DIR}/fold${fold_id}
-    mapfile -t TRACKIO_ARGS < <(build_trackio_args "${FOLD_TASK_NAME}" "${TASK_PREFIX}_references")
+for TRAIN_MANIFEST in "${REFERENCE_SPLITS_DIR}"/split*_train.json; do
+    if [[ ! -f "${TRAIN_MANIFEST}" ]]; then
+        echo "No reference split manifests were found under ${REFERENCE_SPLITS_DIR}."
+        exit 1
+    fi
+    SPLIT_NAME=$(python -c "import json; print(json.load(open('${TRAIN_MANIFEST}', 'r', encoding='utf-8'))['split_name'])")
+    SPLIT_TASK_NAME=${REFERENCE_TASK_PREFIX}_${SPLIT_NAME}
+    SPLIT_OUTPUT_DIR=${REFERENCE_MODELS_DIR}/${SPLIT_NAME}
+    mapfile -t TRACKIO_ARGS < <(build_trackio_args "${SPLIT_TASK_NAME}" "${TASK_PREFIX}_references")
 
-    if is_truthy "$RESUME" && training_output_complete "$FOLD_OUTPUT_DIR"; then
-        log "Skipping reference fold${fold_id}; found completed model output at ${FOLD_OUTPUT_DIR}."
+    if is_truthy "$RESUME" && training_output_complete "$SPLIT_OUTPUT_DIR"; then
+        log "Skipping reference ${SPLIT_NAME}; found completed model output at ${SPLIT_OUTPUT_DIR}."
         continue
     fi
 
     CUDA_VISIBLE_DEVICES=${GPU_ID} python src/train.py --config-name=unlearn.yaml \
         experiment=unlearn/tofu/selective_idk \
         trainer=DPO \
-        task_name=${FOLD_TASK_NAME} \
+        task_name=${SPLIT_TASK_NAME} \
         model=${MODEL} \
         forget_split=${FORGET_SPLIT} \
         retain_split=${RETAIN_SPLIT} \
@@ -174,23 +176,23 @@ for (( fold_id=0; fold_id<NUM_FOLDS; fold_id++ )); do
         trainer.args.save_strategy=no \
         trainer.args.save_only_model=true \
         "${TRACKIO_ARGS[@]}" \
-        paths.output_dir=${FOLD_OUTPUT_DIR}
+        paths.output_dir=${SPLIT_OUTPUT_DIR}
 done
 
 python src/selective_reference.py \
     experiment=selective/tofu/idkdpo \
-    task_name=${REFERENCE_TASK_PREFIX}_manifest \
+    task_name=${REFERENCE_TASK_PREFIX}_reference_manifest \
     model=${MODEL} \
     forget_split=${FORGET_SPLIT} \
     retain_split=${RETAIN_SPLIT} \
     model.model_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
     model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
-    num_folds=${NUM_FOLDS} \
-    fold_assignment_seed=${FOLD_ASSIGNMENT_SEED} \
-    folds_output_dir=${FOLDS_DIR} \
-    folds_summary_path=${FOLDS_DIR}/folds.json \
+    reference_splits_output_dir=${REFERENCE_SPLITS_DIR} \
+    reference_splits_summary_path=${REFERENCE_SPLITS_DIR}/reference_splits.json \
     checkpoint_root_dir=${REFERENCE_MODELS_DIR} \
     reference_manifest_output_path=${REFERENCE_MANIFEST_PATH} \
+    num_repeats=${NUM_REFERENCE_REPEATS} \
+    repeat_split_seed=${REPEAT_SPLIT_SEED} \
     validate_checkpoint_paths=true
 
 if is_truthy "$RESUME" && [[ -s "$DIFFICULTY_PATH" ]]; then
@@ -320,6 +322,4 @@ run_selective_order() {
     echo "Selective-DPO (${intra_stage_order}) training completed. Final stage output: ${prev_output_dir}"
 }
 
-for intra_stage_order in "${INTRA_STAGE_ORDERS[@]}"; do
-    run_selective_order "${intra_stage_order}"
-done
+run_selective_order "${INTRA_STAGE_ORDER}"

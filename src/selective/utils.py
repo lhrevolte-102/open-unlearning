@@ -1,6 +1,7 @@
 import copy
 import json
 import math
+import random
 from pathlib import Path
 
 from data.utils import filter_dataset_by_index
@@ -34,10 +35,95 @@ def get_allowed_indices_from_manifest(payload):
     return _normalize_indices(indices)
 
 
-def assign_holdout_fold(index, num_folds, seed=0):
-    if num_folds <= 0:
-        raise ValueError(f"num_folds must be positive, got {num_folds}")
-    return (int(index) + int(seed)) % int(num_folds)
+def _build_random_repeated_halving_reference_split_manifests(
+    normalized_indices,
+    num_repeats,
+    repeat_split_seed,
+    output_dir,
+):
+    if num_repeats is None:
+        raise ValueError(
+            "num_repeats must be explicitly set for "
+            "reference_split_strategy='random_repeated_halving'"
+        )
+    if int(num_repeats) <= 0:
+        raise ValueError(f"num_repeats must be positive, got {num_repeats}")
+    if len(normalized_indices) < 2:
+        raise ValueError(
+            "random_repeated_halving requires at least 2 examples in the forget set"
+        )
+
+    total_examples = len(normalized_indices)
+    first_half_size = total_examples // 2
+    reference_split_manifests = []
+
+    for repeat_id in range(int(num_repeats)):
+        split_seed = int(repeat_split_seed) + repeat_id
+        shuffled_indices = list(normalized_indices)
+        random.Random(split_seed).shuffle(shuffled_indices)
+
+        partition0_indices = sorted(shuffled_indices[:first_half_size])
+        partition1_indices = sorted(shuffled_indices[first_half_size:])
+
+        for partition_id, (train_indices, heldout_indices) in enumerate(
+            (
+                (partition0_indices, partition1_indices),
+                (partition1_indices, partition0_indices),
+            )
+        ):
+            split_id = repeat_id * 2 + partition_id
+            split_name = f"split{split_id}"
+
+            train_manifest = {
+                "split_id": split_id,
+                "split_name": split_name,
+                "reference_split_strategy": "random_repeated_halving",
+                "split_seed": split_seed,
+                "repeat_id": repeat_id,
+                "partition_id": partition_id,
+                "split": "train",
+                "num_repeats": int(num_repeats),
+                "repeat_split_seed": int(repeat_split_seed),
+                "allowed_indices": train_indices,
+                "num_examples": len(train_indices),
+                "total_examples": total_examples,
+            }
+            heldout_manifest = {
+                "split_id": split_id,
+                "split_name": split_name,
+                "reference_split_strategy": "random_repeated_halving",
+                "split_seed": split_seed,
+                "repeat_id": repeat_id,
+                "partition_id": partition_id,
+                "split": "heldout",
+                "num_repeats": int(num_repeats),
+                "repeat_split_seed": int(repeat_split_seed),
+                "allowed_indices": heldout_indices,
+                "num_examples": len(heldout_indices),
+                "total_examples": total_examples,
+            }
+
+            train_manifest_path = output_dir / f"{split_name}_train.json"
+            heldout_manifest_path = output_dir / f"{split_name}_heldout.json"
+            save_json(train_manifest_path, train_manifest)
+            save_json(heldout_manifest_path, heldout_manifest)
+
+            reference_split_manifests.append(
+                {
+                    "split_id": split_id,
+                    "split_name": split_name,
+                    "reference_split_strategy": "random_repeated_halving",
+                    "split_seed": split_seed,
+                    "repeat_id": repeat_id,
+                    "partition_id": partition_id,
+                    "train_manifest_path": str(train_manifest_path.resolve()),
+                    "heldout_manifest_path": str(heldout_manifest_path.resolve()),
+                    "train_indices": train_indices,
+                    "heldout_indices": heldout_indices,
+                }
+            )
+
+    return reference_split_manifests
 
 
 def load_reference_manifest(reference_manifest_path):
@@ -50,83 +136,54 @@ def load_reference_manifest(reference_manifest_path):
     return manifest
 
 
-def build_fold_manifests(
+def build_reference_split_manifests(
     all_indices,
-    num_folds,
-    fold_assignment_seed,
     output_dir,
+    num_repeats,
+    repeat_split_seed=0,
 ):
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     normalized_indices = _normalize_indices(all_indices)
-    fold_manifests = []
-    for fold_id in range(num_folds):
-        heldout_indices = [
-            idx
-            for idx in normalized_indices
-            if assign_holdout_fold(idx, num_folds, fold_assignment_seed) == fold_id
-        ]
-        heldout_set = set(heldout_indices)
-        train_indices = [idx for idx in normalized_indices if idx not in heldout_set]
-
-        train_manifest = {
-            "fold_id": fold_id,
-            "split": "train",
-            "num_folds": int(num_folds),
-            "allowed_indices": train_indices,
-            "num_examples": len(train_indices),
-            "total_examples": len(normalized_indices),
-        }
-        heldout_manifest = {
-            "fold_id": fold_id,
-            "split": "heldout",
-            "num_folds": int(num_folds),
-            "allowed_indices": heldout_indices,
-            "num_examples": len(heldout_indices),
-            "total_examples": len(normalized_indices),
-        }
-
-        train_manifest_path = output_dir / f"fold{fold_id}_train.json"
-        heldout_manifest_path = output_dir / f"fold{fold_id}_heldout.json"
-        save_json(train_manifest_path, train_manifest)
-        save_json(heldout_manifest_path, heldout_manifest)
-
-        fold_manifests.append(
-            {
-                "fold_id": fold_id,
-                "train_manifest_path": str(train_manifest_path.resolve()),
-                "heldout_manifest_path": str(heldout_manifest_path.resolve()),
-                "train_indices": train_indices,
-                "heldout_indices": heldout_indices,
-            }
-        )
-
-    return fold_manifests
+    return _build_random_repeated_halving_reference_split_manifests(
+        normalized_indices=normalized_indices,
+        num_repeats=num_repeats,
+        repeat_split_seed=repeat_split_seed,
+        output_dir=output_dir,
+    )
 
 
 def build_reference_manifest(
     metadata,
-    fold_manifests,
+    reference_split_manifests,
     checkpoint_root_dir,
     reference_manifest_output_path,
     validate_checkpoint_paths=False,
 ):
     checkpoint_root_dir = Path(checkpoint_root_dir)
     references = []
-    for fold_manifest in fold_manifests:
-        checkpoint_path = checkpoint_root_dir / f"fold{fold_manifest['fold_id']}"
+    for split_manifest in reference_split_manifests:
+        checkpoint_path = checkpoint_root_dir / split_manifest["split_name"]
         if validate_checkpoint_paths and not checkpoint_path.exists():
             raise ValueError(
-                f"Expected checkpoint path for fold {fold_manifest['fold_id']} not found: {checkpoint_path}"
+                "Expected checkpoint path for "
+                f"{split_manifest['split_name']} not found: {checkpoint_path}"
             )
 
         references.append(
             {
-                "fold_id": int(fold_manifest["fold_id"]),
-                "train_manifest_path": fold_manifest["train_manifest_path"],
-                "heldout_manifest_path": fold_manifest["heldout_manifest_path"],
+                "split_id": int(split_manifest["split_id"]),
+                "split_name": split_manifest["split_name"],
+                "reference_split_strategy": split_manifest["reference_split_strategy"],
+                "split_seed": int(split_manifest["split_seed"]),
+                "repeat_id": split_manifest.get("repeat_id", None),
+                "partition_id": split_manifest.get("partition_id", None),
+                "train_manifest_path": split_manifest["train_manifest_path"],
+                "heldout_manifest_path": split_manifest["heldout_manifest_path"],
                 "checkpoint_path": str(checkpoint_path.resolve()),
+                "num_train_examples": len(split_manifest["train_indices"]),
+                "num_heldout_examples": len(split_manifest["heldout_indices"]),
                 "method": metadata["method"],
                 "model": metadata["model"],
                 "forget_split": metadata["forget_split"],
