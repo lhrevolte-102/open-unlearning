@@ -35,6 +35,7 @@ Run [`run.sh`](./run.sh). The script now runs a single intra-stage ordering mode
   - Difficulty scores now live under `saves/selective_prepare/${TASK_PREFIX}_prepare`.
   - Stage manifests now live under `saves/selective_stage/${TASK_PREFIX}_${INTRA_STAGE_ORDER}_stages`.
   - Stage checkpoints and final evals continue to live under `saves/unlearn/${task_name}`.
+  - TensorBoard logs are written under each run's `${output_dir}/logs`.
 
 - Reference split setup:
   - The script always uses repeated random 50/50 partitions and trains one reference model on each half, so every repeat yields two cross-evaluating reference models.

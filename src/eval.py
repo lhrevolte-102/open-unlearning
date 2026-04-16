@@ -1,16 +1,10 @@
 import hydra
 from omegaconf import DictConfig
 
-from trackio_utils import (
-    emit_trackio_alert,
-    finish_trackio_run,
-    init_trackio_run,
-    is_trackio_enabled,
-    log_trackio_metrics,
-)
 from runtime_utils import seed_everything
 from model import get_model
 from evals import get_evaluators
+from tensorboard_utils import create_tensorboard_writer, log_tensorboard_metrics
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="eval.yaml")
@@ -27,9 +21,7 @@ def main(cfg: DictConfig):
 
     eval_cfgs = cfg.eval
     evaluators = get_evaluators(eval_cfgs)
-    trackio_active = False
-    if is_trackio_enabled(cfg):
-        trackio_active = init_trackio_run(cfg)
+    writer = create_tensorboard_writer(cfg.paths.output_dir)
 
     try:
         for evaluator_name, evaluator in evaluators.items():
@@ -39,15 +31,10 @@ def main(cfg: DictConfig):
                 "tokenizer": tokenizer,
             }
             metrics = evaluator.evaluate(**eval_args)
-            if trackio_active and isinstance(metrics, dict):
-                log_trackio_metrics(metrics)
-    except Exception as exc:
-        if trackio_active:
-            emit_trackio_alert("Evaluation failed", str(exc), level="ERROR")
-        raise
+            if isinstance(metrics, dict):
+                log_tensorboard_metrics(writer, metrics, prefix=evaluator_name)
     finally:
-        if trackio_active:
-            finish_trackio_run()
+        writer.close()
 
 
 if __name__ == "__main__":

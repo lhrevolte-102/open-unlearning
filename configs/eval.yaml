@@ -15,15 +15,3 @@ model:
 mode: eval
 task_name: ???
 seed: 0
-trackio:
-  enabled: false
-  project: open-unlearning
-  name: ${task_name}
-  group: null
-  local_dir: saves/trackio
-  space_id: null
-  dataset_id: null
-  auto_log_gpu: null
-  gpu_log_interval: 10.0
-  webhook_url: null
-  webhook_min_level: null

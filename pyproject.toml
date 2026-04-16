@@ -27,7 +27,6 @@ dependencies = [
   "deepspeed==0.15.4",
   "wandb==0.21.4",
   "pytest[dev]>=9.0.3",
-  "trackio>=0.20.2",
 ]
 
 [project.optional-dependencies]

@@ -26,18 +26,6 @@ REPEAT_SPLIT_SEED="${REPEAT_SPLIT_SEED:-0}"
 GPU_ID="0"
 RESUME="${RESUME:-true}"
 
-########################################
-# Trackio config
-########################################
-TRACKIO_ENABLED="${TRACKIO_ENABLED:-true}"
-TRACKIO_PROJECT="${TRACKIO_PROJECT:-open-unlearning-selective}"
-TRACKIO_SPACE_ID="${TRACKIO_SPACE_ID:-}"
-TRACKIO_DATASET_ID="${TRACKIO_DATASET_ID:-}"
-TRACKIO_AUTO_LOG_GPU="${TRACKIO_AUTO_LOG_GPU:-true}"
-TRACKIO_GPU_LOG_INTERVAL="${TRACKIO_GPU_LOG_INTERVAL:-10.0}"
-TRACKIO_WEBHOOK_URL="${TRACKIO_WEBHOOK_URL:-}"
-TRACKIO_WEBHOOK_MIN_LEVEL="${TRACKIO_WEBHOOK_MIN_LEVEL:-}"
-
 log() {
     echo "[Selective-NPO] $*"
 }
@@ -71,34 +59,6 @@ latest_checkpoint_in_dir() {
     local output_dir="$1"
     [[ -d "$output_dir" ]] || return 0
     find "$output_dir" -maxdepth 1 -type d -name 'checkpoint-*' | sort -V | tail -n 1
-}
-
-build_trackio_args() {
-    local run_name="$1"
-    local run_group="$2"
-    local -a args=(
-        "trackio.enabled=${TRACKIO_ENABLED}"
-        "trackio.project=${TRACKIO_PROJECT}"
-        "trackio.name=${run_name}"
-        "trackio.group=${run_group}"
-        "trackio.auto_log_gpu=${TRACKIO_AUTO_LOG_GPU}"
-        "trackio.gpu_log_interval=${TRACKIO_GPU_LOG_INTERVAL}"
-    )
-
-    if [[ -n "${TRACKIO_SPACE_ID}" ]]; then
-        args+=("trackio.space_id=${TRACKIO_SPACE_ID}")
-    fi
-    if [[ -n "${TRACKIO_DATASET_ID}" ]]; then
-        args+=("trackio.dataset_id=${TRACKIO_DATASET_ID}")
-    fi
-    if [[ -n "${TRACKIO_WEBHOOK_URL}" ]]; then
-        args+=("trackio.webhook_url=${TRACKIO_WEBHOOK_URL}")
-    fi
-    if [[ -n "${TRACKIO_WEBHOOK_MIN_LEVEL}" ]]; then
-        args+=("trackio.webhook_min_level=${TRACKIO_WEBHOOK_MIN_LEVEL}")
-    fi
-
-    printf '%s\n' "${args[@]}"
 }
 
 selective_output_dir() {
@@ -155,8 +115,6 @@ for TRAIN_MANIFEST in "${REFERENCE_SPLITS_DIR}"/split*_train.json; do
     SPLIT_NAME=$(python -c "import json; print(json.load(open('${TRAIN_MANIFEST}', 'r', encoding='utf-8'))['split_name'])")
     SPLIT_TASK_NAME=${REFERENCE_TASK_PREFIX}_${SPLIT_NAME}
     SPLIT_OUTPUT_DIR=${REFERENCE_MODELS_DIR}/${SPLIT_NAME}
-    mapfile -t TRACKIO_ARGS < <(build_trackio_args "${SPLIT_TASK_NAME}" "${TASK_PREFIX}_references")
-
     if is_truthy "$RESUME" && training_output_complete "$SPLIT_OUTPUT_DIR"; then
         log "Skipping reference ${SPLIT_NAME}; found completed model output at ${SPLIT_OUTPUT_DIR}."
         continue
@@ -183,7 +141,6 @@ for TRAIN_MANIFEST in "${REFERENCE_SPLITS_DIR}"/split*_train.json; do
         trainer.args.eval_strategy=no \
         trainer.args.save_strategy=no \
         trainer.args.save_only_model=true \
-        "${TRACKIO_ARGS[@]}" \
         paths.output_dir=${SPLIT_OUTPUT_DIR}
 done
 
@@ -245,8 +202,6 @@ run_selective_order() {
         FINAL_TASK_NAME=${STAGE_TASK_NAME}
         final_output_dir="saves/unlearn/${FINAL_TASK_NAME}"
         STAGE_OUTPUT_DIR="saves/unlearn/${STAGE_TASK_NAME}"
-        mapfile -t TRACKIO_ARGS < <(build_trackio_args "${STAGE_TASK_NAME}" "${stage_task_prefix}_stages")
-
         if is_truthy "$RESUME" && training_output_complete "$STAGE_OUTPUT_DIR"; then
             log "Skipping ${STAGE_NAME} (${intra_stage_order}); found completed training output at ${STAGE_OUTPUT_DIR}."
             prev_output_dir=${STAGE_OUTPUT_DIR}
@@ -298,7 +253,6 @@ run_selective_order() {
             +trainer.args.save_total_limit=1 \
             trainer.args.save_only_model=false \
             +trainer.args.ignore_data_skip=true \
-            "${TRACKIO_ARGS[@]}" \
             "${EXTRA_ARGS[@]}" \
             paths.output_dir=${STAGE_OUTPUT_DIR}
 
@@ -314,7 +268,6 @@ run_selective_order() {
     if is_truthy "$RESUME" && [[ -s "${FINAL_EVAL_DIR}/TOFU_EVAL.json" ]]; then
         log "Skipping final eval for ${intra_stage_order}; found existing eval logs at ${FINAL_EVAL_DIR}/TOFU_EVAL.json."
     else
-        mapfile -t TRACKIO_ARGS < <(build_trackio_args "${FINAL_TASK_NAME}_eval" "${stage_task_prefix}_eval")
         CUDA_VISIBLE_DEVICES=${GPU_ID} python src/eval.py \
             experiment=eval/tofu/default.yaml \
             forget_split=${FORGET_SPLIT} \
@@ -323,7 +276,6 @@ run_selective_order() {
             model.model_args.pretrained_model_name_or_path=${final_output_dir} \
             model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
             paths.output_dir=${FINAL_EVAL_DIR} \
-            "${TRACKIO_ARGS[@]}" \
             retain_logs_path=${RETAIN_LOGS_PATH}
     fi
 

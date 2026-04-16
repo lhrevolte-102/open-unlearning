@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import datasets
 import numpy as np
@@ -28,7 +28,7 @@ from selective.utils import (
 )
 from selective.score import build_difficulty_payload, compute_unlearning_forget_losses
 from selective_prepare import prepare_difficulty_payload
-from trackio_utils import emit_trackio_alert
+from tensorboard_utils import get_tensorboard_log_dir, log_tensorboard_metrics
 from trainer.base import FinetuneTrainer
 
 
@@ -87,6 +87,18 @@ def _make_logits(preferred_tokens):
     return torch.stack(logits)
 
 
+class _FakeSummaryWriter:
+    def __init__(self):
+        self.scalars = []
+        self.flushed = False
+
+    def add_scalar(self, tag, value, global_step=None):
+        self.scalars.append((tag, value, global_step))
+
+    def flush(self):
+        self.flushed = True
+
+
 class SelectiveTests(unittest.TestCase):
     def test_configure_torch_checkpoint_safe_globals_allows_numpy_rng_load(self):
         clear_safe_globals = getattr(torch.serialization, "clear_safe_globals", None)
@@ -108,30 +120,35 @@ class SelectiveTests(unittest.TestCase):
 
         self.assertIn("numpy", restored)
 
-    def test_emit_trackio_alert_converts_string_level_to_enum(self):
-        class _FakeAlertLevel:
-            ERROR = "enum-error"
-
-            def __call__(self, value):
-                return f"enum-{value}"
-
-        fake_trackio = SimpleNamespace(
-            AlertLevel=_FakeAlertLevel(),
-            alert=lambda **kwargs: self.assertEqual(kwargs["level"], "enum-error"),
+    def test_get_tensorboard_log_dir_uses_output_logs_subdirectory(self):
+        self.assertEqual(
+            get_tensorboard_log_dir("/tmp/selective-run"),
+            Path("/tmp/selective-run/logs"),
         )
 
-        with patch("trackio_utils._import_trackio", return_value=fake_trackio):
-            emit_trackio_alert("title", "text", level="ERROR")
+    def test_log_tensorboard_metrics_ignores_non_scalars(self):
+        writer = _FakeSummaryWriter()
 
-    def test_emit_trackio_alert_does_not_mask_original_failures(self):
-        alert_mock = Mock(side_effect=RuntimeError("trackio down"))
-        fake_trackio = SimpleNamespace(
-            AlertLevel=SimpleNamespace(ERROR="enum-error"),
-            alert=alert_mock,
+        log_tensorboard_metrics(
+            writer,
+            {
+                "loss": torch.tensor(1.25),
+                "accuracy": 0.5,
+                "skipped_text": "not-a-scalar",
+                "skipped_dict": {"nested": 1},
+            },
+            prefix="tofu",
+            step=7,
         )
 
-        with patch("trackio_utils._import_trackio", return_value=fake_trackio):
-            emit_trackio_alert("title", "text", level="ERROR")
+        self.assertEqual(
+            writer.scalars,
+            [
+                ("tofu/loss", 1.25, 7),
+                ("tofu/accuracy", 0.5, 7),
+            ],
+        )
+        self.assertTrue(writer.flushed)
 
     def test_reference_manifest_contains_expected_records(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
