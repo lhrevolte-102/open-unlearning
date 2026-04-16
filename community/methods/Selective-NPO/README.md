@@ -29,6 +29,11 @@
 
 Run [`run.sh`](./run.sh). Leave `INTRA_STAGE_ORDER=random` for the current baseline, or set `INTRA_STAGE_ORDER=difficulty_strict` for the strict intra-stage ordering control.
 
+- Resume behavior:
+  - `RESUME=true` by default and skips completed reference fold training, difficulty scoring, finished stage training, and final evals.
+  - If a stage was interrupted after checkpoints were written, rerunning `run.sh` resumes that stage from its latest checkpoint automatically.
+  - Set `RESUME=false` to rebuild the workflow from scratch with the current script settings.
+
 # Citation
 
 This is a repository-local adaptation rather than a separate paper artifact. If you use it, please cite the OpenUnlearning technical report and the Selective DPO paper that motivates the curriculum idea.

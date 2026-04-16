@@ -26,6 +26,7 @@ NUM_FOLDS=4
 FOLD_ASSIGNMENT_SEED=0
 
 GPU_ID="0"
+RESUME="${RESUME:-true}"
 
 ########################################
 # Trackio config
@@ -38,6 +39,41 @@ TRACKIO_AUTO_LOG_GPU="${TRACKIO_AUTO_LOG_GPU:-true}"
 TRACKIO_GPU_LOG_INTERVAL="${TRACKIO_GPU_LOG_INTERVAL:-10.0}"
 TRACKIO_WEBHOOK_URL="${TRACKIO_WEBHOOK_URL:-}"
 TRACKIO_WEBHOOK_MIN_LEVEL="${TRACKIO_WEBHOOK_MIN_LEVEL:-}"
+
+log() {
+    echo "[Selective-DPO] $*"
+}
+
+is_truthy() {
+    local value="${1:-}"
+    value="${value,,}"
+    [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" || "$value" == "y" || "$value" == "on" ]]
+}
+
+model_dir_complete() {
+    local model_dir="$1"
+    [[ -d "$model_dir" ]] || return 1
+    [[ -s "${model_dir}/config.json" ]] || return 1
+    if compgen -G "${model_dir}/model-*.safetensors" > /dev/null; then
+        return 0
+    fi
+    if [[ -s "${model_dir}/model.safetensors" || -s "${model_dir}/model.safetensors.index.json" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+training_output_complete() {
+    local output_dir="$1"
+    [[ -s "${output_dir}/trainer_state.json" ]] || return 1
+    model_dir_complete "$output_dir"
+}
+
+latest_checkpoint_in_dir() {
+    local output_dir="$1"
+    [[ -d "$output_dir" ]] || return 0
+    find "$output_dir" -maxdepth 1 -type d -name 'checkpoint-*' | sort -V | tail -n 1
+}
 
 build_trackio_args() {
     local run_name="$1"
@@ -83,6 +119,12 @@ DIFFICULTY_PATH="${SELECTIVE_DIR}/difficulty/difficulty.json"
 
 mkdir -p "$FOLDS_DIR" "$REFERENCE_MODELS_DIR" "$(dirname "$DIFFICULTY_PATH")"
 
+if is_truthy "$RESUME"; then
+    log "Resume mode enabled. Completed reference folds, difficulty scoring, stage training, and evals will be skipped."
+else
+    log "Resume mode disabled. Existing outputs will be reused only when the underlying command does so implicitly."
+fi
+
 python src/selective_reference.py \
     experiment=selective/tofu/idkdpo \
     task_name=${REFERENCE_TASK_PREFIX}_folds \
@@ -104,6 +146,11 @@ for (( fold_id=0; fold_id<NUM_FOLDS; fold_id++ )); do
     FOLD_TASK_NAME=${REFERENCE_TASK_PREFIX}_fold${fold_id}
     FOLD_OUTPUT_DIR=${REFERENCE_MODELS_DIR}/fold${fold_id}
     mapfile -t TRACKIO_ARGS < <(build_trackio_args "${FOLD_TASK_NAME}" "${TASK_PREFIX}_references")
+
+    if is_truthy "$RESUME" && training_output_complete "$FOLD_OUTPUT_DIR"; then
+        log "Skipping reference fold${fold_id}; found completed model output at ${FOLD_OUTPUT_DIR}."
+        continue
+    fi
 
     CUDA_VISIBLE_DEVICES=${GPU_ID} python src/train.py --config-name=unlearn.yaml \
         experiment=unlearn/tofu/selective_idk \
@@ -146,16 +193,20 @@ python src/selective_reference.py \
     reference_manifest_output_path=${REFERENCE_MANIFEST_PATH} \
     validate_checkpoint_paths=true
 
-python src/selective_prepare.py \
-    experiment=selective/tofu/idkdpo \
-    task_name=${TASK_PREFIX}_prepare \
-    model=${MODEL} \
-    forget_split=${FORGET_SPLIT} \
-    model.model_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
-    model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
-    reference_manifest_path=${REFERENCE_MANIFEST_PATH} \
-    beta=${BETA} \
-    score_output_path=${DIFFICULTY_PATH}
+if is_truthy "$RESUME" && [[ -s "$DIFFICULTY_PATH" ]]; then
+    log "Skipping difficulty preparation; found existing score file at ${DIFFICULTY_PATH}."
+else
+    python src/selective_prepare.py \
+        experiment=selective/tofu/idkdpo \
+        task_name=${TASK_PREFIX}_prepare \
+        model=${MODEL} \
+        forget_split=${FORGET_SPLIT} \
+        model.model_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
+        model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
+        reference_manifest_path=${REFERENCE_MANIFEST_PATH} \
+        beta=${BETA} \
+        score_output_path=${DIFFICULTY_PATH}
+fi
 
 run_selective_order() {
     local intra_stage_order="$1"
@@ -164,6 +215,7 @@ run_selective_order() {
     local stage_task_prefix="${TASK_PREFIX}_${intra_stage_order}"
     local prev_output_dir=""
     local final_task_name=""
+    local final_output_dir=""
 
     mkdir -p "$stage_dir"
 
@@ -181,11 +233,28 @@ run_selective_order() {
         STAGE_EPOCHS=$(python -c "total_epochs=float('${TOTAL_EPOCHS}'); epoch_ratio=float('${EPOCH_RATIO}'); print(max(epoch_ratio * total_epochs, 1.0))")
         STAGE_TASK_NAME=${stage_task_prefix}_${STAGE_NAME}
         FINAL_TASK_NAME=${STAGE_TASK_NAME}
+        final_output_dir="saves/unlearn/${FINAL_TASK_NAME}"
+        STAGE_OUTPUT_DIR="saves/unlearn/${STAGE_TASK_NAME}"
         mapfile -t TRACKIO_ARGS < <(build_trackio_args "${STAGE_TASK_NAME}" "${stage_task_prefix}_stages")
 
+        if is_truthy "$RESUME" && training_output_complete "$STAGE_OUTPUT_DIR"; then
+            log "Skipping ${STAGE_NAME} (${intra_stage_order}); found completed training output at ${STAGE_OUTPUT_DIR}."
+            prev_output_dir=${STAGE_OUTPUT_DIR}
+            continue
+        fi
+
         EXTRA_ARGS=()
-        if [[ -n "$prev_output_dir" ]]; then
-            LATEST_CHECKPOINT=$(find "$prev_output_dir" -maxdepth 1 -type d -name 'checkpoint-*' | sort -V | tail -n 1)
+        LATEST_CHECKPOINT=""
+        if is_truthy "$RESUME"; then
+            LATEST_CHECKPOINT=$(latest_checkpoint_in_dir "$STAGE_OUTPUT_DIR")
+            if [[ -n "$LATEST_CHECKPOINT" ]]; then
+                log "Resuming ${STAGE_NAME} (${intra_stage_order}) from in-progress checkpoint ${LATEST_CHECKPOINT}."
+                EXTRA_ARGS+=("resume_from_checkpoint=${LATEST_CHECKPOINT}")
+            fi
+        fi
+
+        if [[ ${#EXTRA_ARGS[@]} -eq 0 && -n "$prev_output_dir" ]]; then
+            LATEST_CHECKPOINT=$(latest_checkpoint_in_dir "$prev_output_dir")
             if [[ -z "$LATEST_CHECKPOINT" ]]; then
                 echo "No checkpoint found under ${prev_output_dir} for ${STAGE_NAME} resume."
                 exit 1
@@ -218,21 +287,32 @@ run_selective_order() {
             trainer.args.save_only_model=false \
             trainer.args.ignore_data_skip=true \
             "${TRACKIO_ARGS[@]}" \
-            "${EXTRA_ARGS[@]}"
+            "${EXTRA_ARGS[@]}" \
+            paths.output_dir=${STAGE_OUTPUT_DIR}
 
-        prev_output_dir=saves/unlearn/${STAGE_TASK_NAME}
+        prev_output_dir=${STAGE_OUTPUT_DIR}
     done
 
-    mapfile -t TRACKIO_ARGS < <(build_trackio_args "${FINAL_TASK_NAME}_eval" "${stage_task_prefix}_eval")
-    CUDA_VISIBLE_DEVICES=${GPU_ID} python src/eval.py \
-        experiment=eval/tofu/default.yaml \
-        forget_split=${FORGET_SPLIT} \
-        model=${MODEL} \
-        task_name=${FINAL_TASK_NAME} \
-        model.model_args.pretrained_model_name_or_path=saves/unlearn/${FINAL_TASK_NAME} \
-        paths.output_dir=saves/unlearn/${FINAL_TASK_NAME}/evals \
-        "${TRACKIO_ARGS[@]}" \
-        retain_logs_path=${RETAIN_LOGS_PATH}
+    if [[ -z "$FINAL_TASK_NAME" ]]; then
+        echo "No stage manifests were found under ${stage_dir}."
+        exit 1
+    fi
+
+    FINAL_EVAL_DIR="${final_output_dir}/evals"
+    if is_truthy "$RESUME" && [[ -s "${FINAL_EVAL_DIR}/TOFU_EVAL.json" ]]; then
+        log "Skipping final eval for ${intra_stage_order}; found existing eval logs at ${FINAL_EVAL_DIR}/TOFU_EVAL.json."
+    else
+        mapfile -t TRACKIO_ARGS < <(build_trackio_args "${FINAL_TASK_NAME}_eval" "${stage_task_prefix}_eval")
+        CUDA_VISIBLE_DEVICES=${GPU_ID} python src/eval.py \
+            experiment=eval/tofu/default.yaml \
+            forget_split=${FORGET_SPLIT} \
+            model=${MODEL} \
+            task_name=${FINAL_TASK_NAME} \
+            model.model_args.pretrained_model_name_or_path=${final_output_dir} \
+            paths.output_dir=${FINAL_EVAL_DIR} \
+            "${TRACKIO_ARGS[@]}" \
+            retain_logs_path=${RETAIN_LOGS_PATH}
+    fi
 
     echo "Selective-DPO (${intra_stage_order}) training completed. Final stage output: ${prev_output_dir}"
 }
