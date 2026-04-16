@@ -311,6 +311,7 @@ run_selective_order() {
             model=${MODEL} \
             task_name=${FINAL_TASK_NAME} \
             model.model_args.pretrained_model_name_or_path=${final_output_dir} \
+            model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
             paths.output_dir=${FINAL_EVAL_DIR} \
             "${TRACKIO_ARGS[@]}" \
             retain_logs_path=${RETAIN_LOGS_PATH}
