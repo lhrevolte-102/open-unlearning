@@ -68,10 +68,29 @@ selective_output_dir() {
     echo "saves/${mode}/${task_name}"
 }
 
+tofu_eval_has_full_metrics() {
+    local eval_file="$1"
+    [[ -s "$eval_file" ]] || return 1
+    python -c 'import json, sys
+required = {
+    "exact_memorization",
+    "mia_gradnorm",
+    "mia_loss",
+    "mia_min_k",
+    "mia_min_k_plus_plus",
+    "mia_reference",
+    "mia_zlib",
+}
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    metrics = json.load(handle)
+raise SystemExit(0 if required.issubset(metrics) else 1)' "$eval_file"
+}
+
 ########################################
 # Derived paths
 ########################################
 BASE_MODEL_PATH="open-unlearning/tofu_${MODEL}_full"
+RETAIN_MODEL_PATH="open-unlearning/tofu_${MODEL}_${RETAIN_SPLIT}"
 TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_dpo_random_repeated_halving"
 REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_dpo_random_repeated_halving"
 REFERENCE_TASK_NAME="${REFERENCE_TASK_PREFIX}"
@@ -268,18 +287,19 @@ run_selective_order() {
     fi
 
     FINAL_EVAL_DIR="${final_output_dir}/evals"
-    if is_truthy "$RESUME" && [[ -s "${FINAL_EVAL_DIR}/TOFU_EVAL.json" ]]; then
-        log "Skipping final eval for ${intra_stage_order}; found existing eval logs at ${FINAL_EVAL_DIR}/TOFU_EVAL.json."
+    if is_truthy "$RESUME" && tofu_eval_has_full_metrics "${FINAL_EVAL_DIR}/TOFU_EVAL.json"; then
+        log "Skipping final eval for ${intra_stage_order}; found existing full-metric eval logs at ${FINAL_EVAL_DIR}/TOFU_EVAL.json."
     else
         CUDA_VISIBLE_DEVICES=${GPU_ID} python src/eval.py \
-            experiment=eval/tofu/default.yaml \
+            experiment=eval/tofu/full \
             forget_split=${FORGET_SPLIT} \
             model=${MODEL} \
             task_name=${FINAL_TASK_NAME} \
             model.model_args.pretrained_model_name_or_path=${final_output_dir} \
             model.tokenizer_args.pretrained_model_name_or_path=${BASE_MODEL_PATH} \
             paths.output_dir=${FINAL_EVAL_DIR} \
-            retain_logs_path=${RETAIN_LOGS_PATH}
+            retain_logs_path=${RETAIN_LOGS_PATH} \
+            reference_model_path=${RETAIN_MODEL_PATH}
     fi
 
     echo "Selective-DPO (${intra_stage_order}) training completed. Final stage output: ${prev_output_dir}"
