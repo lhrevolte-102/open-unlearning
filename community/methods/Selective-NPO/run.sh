@@ -16,6 +16,7 @@ RETAIN_SPLIT="retain90"
 TOTAL_EPOCHS=10
 STAGE_PERCENTILES='[0.3,0.6,1.0]'
 STAGE_EPOCH_RATIOS='[0.3,0.3,0.4]'
+STAGE_LOGGING_STEPS="${STAGE_LOGGING_STEPS:-1}"
 INTRA_STAGE_ORDER="${INTRA_STAGE_ORDER:-random}"
 BETA=0.1
 PER_DEVICE_TRAIN_BATCH_SIZE=16
@@ -245,6 +246,8 @@ run_selective_order() {
             trainer.args.per_device_train_batch_size=${PER_DEVICE_TRAIN_BATCH_SIZE} \
             trainer.args.gradient_accumulation_steps=${GRADIENT_ACCUMULATION_STEPS} \
             trainer.args.num_train_epochs=${STAGE_EPOCHS} \
+            trainer.args.logging_steps=${STAGE_LOGGING_STEPS} \
+            +trainer.args.logging_first_step=true \
             trainer.args.gradient_checkpointing=true \
             trainer.args.do_eval=false \
             trainer.args.eval_on_start=false \

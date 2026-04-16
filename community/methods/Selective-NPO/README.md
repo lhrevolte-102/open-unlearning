@@ -12,6 +12,7 @@
   - `beta=0.1`
   - `stage_percentiles=[0.3, 0.6, 1.0]`
   - `stage_epoch_ratios=[0.3, 0.3, 0.4]`
+  - stage unlearning logs to TensorBoard every optimizer step by default via `STAGE_LOGGING_STEPS=1`
   - repeated random halving for reference difficulty estimation
   - `NUM_REFERENCE_REPEATS=3` by default, corresponding to 3 random partitions and 6 reference models
   - `per_device_train_batch_size=16`
