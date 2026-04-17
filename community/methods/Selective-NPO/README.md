@@ -41,6 +41,7 @@ Run [`run.sh`](./run.sh). The script now runs a single intra-stage ordering mode
 
 - Reference split setup:
   - The script always uses repeated random 50/50 partitions and trains one reference model on each half, so every repeat yields two cross-evaluating reference models.
+  - This split strategy is now implicit in the artifact names, so output directories no longer include the old `random_repeated_halving` suffix.
   - `NUM_REFERENCE_REPEATS` controls how many random partitions are used. For example, `NUM_REFERENCE_REPEATS=3` yields 3 random partitions and 6 reference models.
 
 - Resume behavior:

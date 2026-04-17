@@ -169,7 +169,6 @@ class SelectiveTests(unittest.TestCase):
                     "model": "base-model",
                     "forget_split": "forget10",
                     "retain_split": "retain90",
-                    "reference_split_strategy": "random_repeated_halving",
                     "num_repeats": 1,
                     "repeat_split_seed": 0,
                     "all_indices": [0, 1, 2, 3],
@@ -184,10 +183,6 @@ class SelectiveTests(unittest.TestCase):
             self.assertEqual(len(reference_manifest["references"]), 2)
             self.assertTrue(
                 reference_manifest["references"][0]["checkpoint_path"].endswith("split0")
-            )
-            self.assertEqual(
-                reference_manifest["references"][0]["reference_split_strategy"],
-                "random_repeated_halving",
             )
 
     def test_random_repeated_halving_manifests_cover_full_dataset_per_repeat(self):
@@ -214,14 +209,6 @@ class SelectiveTests(unittest.TestCase):
             self.assertEqual(part1["split_id"], repeat_id * 2 + 1)
             self.assertEqual(part0["split_seed"], 11 + repeat_id)
             self.assertEqual(part1["split_seed"], 11 + repeat_id)
-            self.assertEqual(
-                part0["reference_split_strategy"],
-                "random_repeated_halving",
-            )
-            self.assertEqual(
-                part1["reference_split_strategy"],
-                "random_repeated_halving",
-            )
             self.assertEqual(
                 set(part0["train_indices"]) | set(part0["heldout_indices"]),
                 set(range(7)),
@@ -602,7 +589,6 @@ class SelectiveTests(unittest.TestCase):
                     "model": "base-model",
                     "forget_split": "forget10",
                     "retain_split": "retain90",
-                    "reference_split_strategy": "random_repeated_halving",
                     "num_repeats": 1,
                     "repeat_split_seed": 0,
                     "all_indices": [0, 1, 2, 3],
@@ -723,7 +709,7 @@ class SelectiveTests(unittest.TestCase):
             npo_script,
         )
 
-    def test_selective_scripts_isolate_outputs_by_reference_split_strategy(self):
+    def test_selective_scripts_use_short_output_prefixes(self):
         dpo_script = (
             ROOT / "community" / "methods" / "Selective-DPO" / "run.sh"
         ).read_text(encoding="utf-8")
@@ -732,11 +718,11 @@ class SelectiveTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn(
-            'TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_dpo_random_repeated_halving"',
+            'TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_dpo"',
             dpo_script,
         )
         self.assertIn(
-            'REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_dpo_random_repeated_halving"',
+            'REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_dpo"',
             dpo_script,
         )
         self.assertIn(
@@ -744,11 +730,11 @@ class SelectiveTests(unittest.TestCase):
             dpo_script,
         )
         self.assertIn(
-            'TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_npo_random_repeated_halving"',
+            'TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_npo"',
             npo_script,
         )
         self.assertIn(
-            'REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_npo_random_repeated_halving"',
+            'REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_npo"',
             npo_script,
         )
         self.assertIn(

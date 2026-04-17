@@ -74,7 +74,6 @@ def prepare_difficulty_payload(
             {
                 "split_id": reference_spec["split_id"],
                 "split_name": reference_spec["split_name"],
-                "reference_split_strategy": reference_spec["reference_split_strategy"],
                 "split_seed": reference_spec["split_seed"],
                 "repeat_id": reference_spec.get("repeat_id", None),
                 "partition_id": reference_spec.get("partition_id", None),

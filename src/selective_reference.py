@@ -36,7 +36,6 @@ def build_reference_artifacts(cfg: DictConfig):
             "model": cfg.model.model_args.pretrained_model_name_or_path,
             "forget_split": cfg.get("forget_split", None),
             "retain_split": cfg.get("retain_split", None),
-            "reference_split_strategy": "random_repeated_halving",
             "num_repeats": cfg.num_repeats,
             "repeat_split_seed": cfg.repeat_split_seed,
             "all_indices": all_indices,
@@ -45,7 +44,6 @@ def build_reference_artifacts(cfg: DictConfig):
             {
                 "split_id": split["split_id"],
                 "split_name": split["split_name"],
-                "reference_split_strategy": split["reference_split_strategy"],
                 "split_seed": split["split_seed"],
                 "repeat_id": split.get("repeat_id", None),
                 "partition_id": split.get("partition_id", None),
@@ -65,7 +63,6 @@ def build_reference_artifacts(cfg: DictConfig):
             "model": cfg.model.model_args.pretrained_model_name_or_path,
             "forget_split": cfg.get("forget_split", None),
             "retain_split": cfg.get("retain_split", None),
-            "reference_split_strategy": "random_repeated_halving",
             "num_repeats": cfg.num_repeats,
             "repeat_split_seed": cfg.repeat_split_seed,
             "all_indices": all_indices,

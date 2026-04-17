@@ -42,10 +42,7 @@ def _build_random_repeated_halving_reference_split_manifests(
     output_dir,
 ):
     if num_repeats is None:
-        raise ValueError(
-            "num_repeats must be explicitly set for "
-            "reference_split_strategy='random_repeated_halving'"
-        )
+        raise ValueError("num_repeats must be explicitly set")
     if int(num_repeats) <= 0:
         raise ValueError(f"num_repeats must be positive, got {num_repeats}")
     if len(normalized_indices) < 2:
@@ -77,7 +74,6 @@ def _build_random_repeated_halving_reference_split_manifests(
             train_manifest = {
                 "split_id": split_id,
                 "split_name": split_name,
-                "reference_split_strategy": "random_repeated_halving",
                 "split_seed": split_seed,
                 "repeat_id": repeat_id,
                 "partition_id": partition_id,
@@ -91,7 +87,6 @@ def _build_random_repeated_halving_reference_split_manifests(
             heldout_manifest = {
                 "split_id": split_id,
                 "split_name": split_name,
-                "reference_split_strategy": "random_repeated_halving",
                 "split_seed": split_seed,
                 "repeat_id": repeat_id,
                 "partition_id": partition_id,
@@ -112,7 +107,6 @@ def _build_random_repeated_halving_reference_split_manifests(
                 {
                     "split_id": split_id,
                     "split_name": split_name,
-                    "reference_split_strategy": "random_repeated_halving",
                     "split_seed": split_seed,
                     "repeat_id": repeat_id,
                     "partition_id": partition_id,
@@ -175,7 +169,6 @@ def build_reference_manifest(
             {
                 "split_id": int(split_manifest["split_id"]),
                 "split_name": split_manifest["split_name"],
-                "reference_split_strategy": split_manifest["reference_split_strategy"],
                 "split_seed": int(split_manifest["split_seed"]),
                 "repeat_id": split_manifest.get("repeat_id", None),
                 "partition_id": split_manifest.get("partition_id", None),
