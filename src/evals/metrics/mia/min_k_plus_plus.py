@@ -1,5 +1,4 @@
 import torch as torch
-import numpy as np
 from evals.metrics.mia.min_k import MinKProbAttack
 from evals.metrics.utils import tokenwise_vocab_logprobs, tokenwise_logprobs
 
@@ -16,8 +15,8 @@ class MinKPlusPlusAttack(MinKProbAttack):
 
     def compute_score(self, sample_stats):
         """Score using min-k negative log probs scores with vocab-wise normalization."""
-        all_probs = sample_stats["vocab_log_probs"]
-        target_prob = sample_stats["token_log_probs"]
+        all_probs = sample_stats["vocab_log_probs"].to(torch.float32)
+        target_prob = sample_stats["token_log_probs"].to(torch.float32)
 
         if len(target_prob) == 0:
             return 0
@@ -30,10 +29,9 @@ class MinKPlusPlusAttack(MinKProbAttack):
 
         # Handle numerical stability
         sigma = torch.clamp(sigma, min=1e-6)
-        scores = (
-            target_prob.float().cpu().numpy() - mu.float().cpu().numpy()
-        ) / torch.sqrt(sigma).cpu().numpy()
+        scores = (target_prob - mu) / torch.sqrt(sigma)
 
         # Take bottom k% as the attack score
         num_k = max(1, int(len(scores) * self.k))
-        return -np.mean(sorted(scores)[:num_k])
+        lowest_scores, _ = torch.sort(scores)
+        return -lowest_scores[:num_k].mean().item()

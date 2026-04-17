@@ -35,4 +35,4 @@ class GradNormAttack(Attack):
 
     def compute_score(self, sample_stats):
         """Return negative gradient norm as the attack score."""
-        return sample_stats.cpu().to(torch.float32).numpy()
+        return sample_stats.to(torch.float32).item()
