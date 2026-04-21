@@ -9,6 +9,10 @@
 
 set -euo pipefail
 
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT_DIR"
+source .venv/bin/activate
+
 echo "Job started at $(date)"
-bash community/methods/Selective-NPO/run.sh
+python community/methods/Selective-NPO/run.py
 echo "Job ended at $(date)"

@@ -2,7 +2,7 @@ import hydra
 from omegaconf import DictConfig
 from data import get_data, get_collators
 from model import get_model
-from runtime_utils import configure_torch_checkpoint_safe_globals, seed_everything
+from utils.runtime import configure_torch_checkpoint_safe_globals, seed_everything
 from selective.runtime import apply_intra_stage_ordering
 from trainer import load_trainer
 from evals import get_evaluators

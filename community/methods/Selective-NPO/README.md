@@ -29,12 +29,12 @@
 
 # Results
 
-Run [`run.sh`](./run.sh). The script now runs a single intra-stage ordering mode at a time and defaults to `INTRA_STAGE_ORDER=random`. Set `INTRA_STAGE_ORDER=strict` to run the strict intra-stage ordering control.
+Run [`run.py`](./run.py). The script now runs a single intra-stage ordering mode at a time and defaults to `INTRA_STAGE_ORDER=random`. Set `INTRA_STAGE_ORDER=strict` to run the strict intra-stage ordering control.
 
 - Output layout:
-  - Reference artifacts now live under `saves/selective_reference/${REFERENCE_TASK_NAME}`.
-  - Difficulty scores now live under `saves/selective_prepare/${TASK_PREFIX}_prepare`.
-  - Stage manifests now live under `saves/selective_stage/${TASK_PREFIX}_${INTRA_STAGE_ORDER}_stages`.
+  - Reference artifacts now live under `saves/selective/reference/${REFERENCE_TASK_NAME}`.
+  - Difficulty scores now live under `saves/selective/prepare/${TASK_PREFIX}_prepare`.
+  - Stage manifests now live under `saves/selective/stage/${TASK_PREFIX}_${INTRA_STAGE_ORDER}_stages`.
   - Stage checkpoints and final evals continue to live under `saves/unlearn/${task_name}`.
   - Final evals use the full TOFU metric suite, including exact memorization and the MIA metrics.
   - TensorBoard logs are written under each run's `${output_dir}/logs`.
@@ -46,7 +46,7 @@ Run [`run.sh`](./run.sh). The script now runs a single intra-stage ordering mode
 
 - Resume behavior:
   - `RESUME=true` by default and skips completed reference split training, difficulty scoring, finished stage training, and final evals.
-  - If a stage was interrupted after checkpoints were written, rerunning `run.sh` resumes that stage from its latest checkpoint automatically.
+  - If a stage was interrupted after checkpoints were written, rerunning `run.py` resumes that stage from its latest checkpoint automatically.
   - Set `RESUME=false` to rebuild the workflow from scratch with the current script settings.
 
 # Citation

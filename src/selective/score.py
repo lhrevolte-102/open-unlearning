@@ -3,7 +3,7 @@ from collections import defaultdict
 import torch
 from torch.utils.data import DataLoader
 
-from loss_utils import compute_dpo_loss
+from utils.loss import compute_dpo_loss
 
 
 def _strip_index(batch):

@@ -27,6 +27,7 @@ dependencies = [
   "deepspeed==0.15.4",
   "wandb==0.21.4",
   "pytest[dev]>=9.0.3",
+  "flash-attn==2.6.3",
 ]
 
 [project.optional-dependencies]

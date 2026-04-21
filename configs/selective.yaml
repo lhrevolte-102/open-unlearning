@@ -1,0 +1,39 @@
+defaults:
+  - model: Llama-3.2-1B-Instruct
+  - collator: DataCollatorForSupervisedDatasetwithIndex
+  - hydra: default
+  - paths: default
+  - _self_
+  - experiment: null
+
+seed: 0
+mode: selective
+task_name: selective
+trainer:
+  handler: selective
+pipeline_steps: [reference, prepare, stage]
+method: NPO
+num_repeats: 3
+repeat_split_seed: 0
+retain_split: retain90
+beta: 0.1
+batch_size: 8
+data: null
+
+reference:
+  reference_splits_output_dir: ${paths.output_dir}/reference/reference_splits
+  reference_splits_summary_path: ${paths.output_dir}/reference/reference_splits/reference_splits.json
+  checkpoint_root_dir: ${paths.output_dir}/reference/models
+  reference_manifest_output_path: ${paths.output_dir}/reference/reference_models.json
+  validate_checkpoint_paths: false
+
+prepare:
+  reference_manifest_path: ${reference.reference_manifest_output_path}
+  score_output_path: ${paths.output_dir}/prepare/difficulty.json
+
+stage:
+  difficulty_path: ${prepare.score_output_path}
+  output_dir: ${paths.output_dir}/stage/stages
+  intra_stage_order: random
+  stage_percentiles: [0.3, 0.6, 1.0]
+  stage_epoch_ratios: [0.3, 0.3, 0.4]

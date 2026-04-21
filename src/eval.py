@@ -1,10 +1,10 @@
 import hydra
 from omegaconf import DictConfig
 
-from runtime_utils import seed_everything
+from utils.runtime import seed_everything
 from model import get_model
 from evals import get_evaluators
-from tensorboard_utils import create_tensorboard_writer, log_tensorboard_metrics
+from utils.tensorboard import create_tensorboard_writer, log_tensorboard_metrics
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="eval.yaml")

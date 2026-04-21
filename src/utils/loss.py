@@ -50,3 +50,4 @@ def compute_dpo_loss(
             f"Unsupported reduction '{reduction}', expected 'mean' or 'none'"
         )
     return loss, (win_outputs, lose_outputs)
+

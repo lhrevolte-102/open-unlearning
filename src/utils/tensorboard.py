@@ -45,3 +45,4 @@ def log_tensorboard_metrics(
         tag = f"{prefix}/{key}" if prefix else key
         writer.add_scalar(tag, scalar, global_step=step)
     writer.flush()
+

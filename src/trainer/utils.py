@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from loss_utils import compute_batch_nll, compute_dpo_loss
+from utils.loss import compute_batch_nll, compute_dpo_loss
 def compute_kl_divergence(model, target_model, inputs):
     with torch.no_grad():
         ref_outputs = target_model(**inputs)

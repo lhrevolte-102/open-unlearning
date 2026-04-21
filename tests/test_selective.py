@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from data.qa import QADataset, QAwithAlternateDataset, QAwithIdkDataset
 from data.utils import load_allowed_indices
-from runtime_utils import configure_torch_checkpoint_safe_globals
+from utils.runtime import configure_torch_checkpoint_safe_globals
 from selective.runtime import apply_intra_stage_ordering
 from selective.utils import (
     build_reference_manifest,
@@ -27,8 +27,8 @@ from selective.utils import (
     build_stage_manifests,
 )
 from selective.score import build_difficulty_payload, compute_unlearning_forget_losses
-from selective_prepare import prepare_difficulty_payload
-from tensorboard_utils import get_tensorboard_log_dir, log_tensorboard_metrics
+from selective.pipeline import prepare_difficulty_payload
+from utils.tensorboard import get_tensorboard_log_dir, log_tensorboard_metrics
 from trainer.base import FinetuneTrainer
 
 
