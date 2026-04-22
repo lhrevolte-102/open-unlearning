@@ -165,38 +165,35 @@ class RunConfig:
         return f"saves/eval/tofu_{self.model}_{self.retain_split}/TOFU_EVAL.json"
 
     @property
-    def shared_task_config_suffix(self) -> str:
+    def reference_prepare_config_suffix(self) -> str:
         return (
             f"{METHOD.task_label}_lr{self.learning_rate}_beta{self.beta}_alpha{self.alpha}_"
-            f"epoch{self.total_epochs_token}_"
-            f"{format_number_list_suffix(self.stage_percentiles, 'pct')}_"
-            f"{format_number_list_suffix(self.stage_epoch_ratios, 'ratio')}"
+            f"epoch{self.total_epochs_token}_refs{self.num_reference_repeats}"
         )
 
     @property
-    def stage_task_config_suffix(self) -> str:
+    def stage_manifest_config_suffix(self) -> str:
         return (
-            f"{METHOD.task_label}_lr{self.learning_rate}_beta{self.beta}_alpha{self.alpha}_"
-            f"epoch{self.total_epochs_token}_{self.stage_subset_mode}_"
+            f"{self.stage_subset_mode}_"
             f"{format_number_list_suffix(self.stage_percentiles, 'pct')}_"
             f"{format_number_list_suffix(self.stage_epoch_ratios, 'ratio')}"
         )
 
     @property
     def task_prefix(self) -> str:
-        return f"tofu_{self.model}_{self.forget_split}_{self.shared_task_config_suffix}"
+        return f"tofu_{self.model}_{self.forget_split}_{self.reference_prepare_config_suffix}"
 
     @property
     def stage_task_base_prefix(self) -> str:
-        return f"tofu_{self.model}_{self.forget_split}_{self.stage_task_config_suffix}"
+        return f"{self.task_prefix}_{self.stage_manifest_config_suffix}"
 
     @property
     def reference_task_prefix(self) -> str:
-        return f"tofu_{self.model}_{self.forget_split}_references_{self.shared_task_config_suffix}"
+        return self.task_prefix
 
     @property
     def reference_task_name(self) -> str:
-        return self.reference_task_prefix
+        return f"{self.reference_task_prefix}_references"
 
     @property
     def prepare_task_name(self) -> str:
@@ -227,12 +224,12 @@ class RunConfig:
         return self.prepare_dir / "difficulty.json"
 
     @property
-    def stage_task_prefix(self) -> str:
-        return f"{self.stage_task_base_prefix}_{self.intra_stage_order}"
+    def stage_task_name(self) -> str:
+        return f"{self.stage_task_base_prefix}_stages"
 
     @property
-    def stage_task_name(self) -> str:
-        return f"{self.stage_task_prefix}_stages"
+    def stage_run_prefix(self) -> str:
+        return f"{self.stage_task_base_prefix}_{self.intra_stage_order}"
 
     @property
     def stage_dir(self) -> Path:
@@ -315,7 +312,7 @@ def run_reference_training(cfg: RunConfig) -> None:
 
     for train_manifest in train_manifests:
         split_name = load_json(train_manifest)["split_name"]
-        split_task_name = f"{cfg.reference_task_prefix}_{split_name}"
+        split_task_name = f"{cfg.reference_task_name}_{split_name}"
         split_output_dir = cfg.reference_models_dir / split_name
 
         if cfg.resume and training_output_complete(split_output_dir):
@@ -419,7 +416,7 @@ def run_stage_training(cfg: RunConfig, stage_manifests: list[Path]) -> None:
         manifest = load_json(stage_manifest)
         stage_name = manifest["stage_name"]
         stage_epochs = str(max(float(manifest["epoch_ratio"]) * cfg.total_epochs, 1.0))
-        stage_task_name = f"{cfg.stage_task_prefix}_{stage_name}"
+        stage_task_name = f"{cfg.stage_run_prefix}_{stage_name}"
         stage_output_dir = UNLEARN_ROOT / stage_task_name
 
         if cfg.resume and training_output_complete(stage_output_dir):

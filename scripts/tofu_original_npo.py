@@ -61,7 +61,7 @@ METHOD = MethodSpec(
     label="NPO",
     experiment="unlearn/tofu/default.yaml",
     trainer_name="NPO",
-    task_suffix="npo_original",
+    task_suffix="NPO",
     forget_dataset_name="TOFU_QA_forget",
 )
 
@@ -280,20 +280,29 @@ def run_train_command(
     )
 
 
-def plan_task_prefix(cfg: RunConfig, plan: StagePlan) -> str:
-    if not plan.staged and not plan.subset_staged:
-        return cfg.base_task_name
-    staged_base = f"{cfg.base_task_name}_beta{cfg.beta}_epoch{cfg.total_epochs_token}"
+def stage_manifest_suffix(cfg: RunConfig, plan: StagePlan) -> str:
+    return (
+        f"{cfg.stage_subset_mode}_{format_float_list_suffix(plan.stage_percentiles, 'pct')}_"
+        f"{format_float_list_suffix(plan.epoch_ratios, 'ratio')}"
+    )
+
+
+def staged_training_suffix(cfg: RunConfig, plan: StagePlan) -> str:
     if plan.subset_staged:
         return (
-            f"{staged_base}_{cfg.stage_subset_mode}_{format_float_list_suffix(plan.stage_percentiles, 'pct')}_"
-            f"{format_float_list_suffix(plan.epoch_ratios, 'ratio')}"
+            f"beta{cfg.beta}_epoch{cfg.total_epochs_token}_{stage_manifest_suffix(cfg, plan)}"
         )
-    return f"{staged_base}_{format_float_list_suffix(plan.epoch_ratios, 'ratio')}"
+    return f"beta{cfg.beta}_epoch{cfg.total_epochs_token}_{format_float_list_suffix(plan.epoch_ratios, 'ratio')}"
+
+
+def training_task_prefix(cfg: RunConfig, plan: StagePlan) -> str:
+    if not plan.staged and not plan.subset_staged:
+        return cfg.base_task_name
+    return f"{cfg.base_task_name}_{staged_training_suffix(cfg, plan)}"
 
 
 def stage_manifest_dir(cfg: RunConfig, plan: StagePlan) -> Path:
-    return ORIGINAL_ROOT / "stage" / f"{plan_task_prefix(cfg, plan)}_stages" / "stages"
+    return ORIGINAL_ROOT / "stage" / f"{cfg.base_task_name}_{stage_manifest_suffix(cfg, plan)}_stages" / "stages"
 
 
 def build_original_stage_manifests(cfg: RunConfig, plan: StagePlan) -> list[Path]:
@@ -446,7 +455,7 @@ def run_multi_stage_subset(cfg: RunConfig, task_prefix: str, stage_manifests: li
 
 
 def run_unlearn(cfg: RunConfig, plan: StagePlan) -> str:
-    task_prefix = plan_task_prefix(cfg, plan)
+    task_prefix = training_task_prefix(cfg, plan)
     if not plan.staged:
         return run_single_stage(cfg, task_prefix)
     if not plan.subset_staged:
