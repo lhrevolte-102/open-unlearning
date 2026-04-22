@@ -1,7 +1,6 @@
 import subprocess
 import sys
 import tempfile
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -55,7 +54,7 @@ class _ToyLM(torch.nn.Module):
         return SimpleNamespace(logits=logits)
 
 
-class MRDTests(unittest.TestCase):
+class TestMRD:
     def test_mrd_scorer_is_stable_with_fixed_seed(self):
         torch.manual_seed(0)
         model = _ToyLM()
@@ -85,14 +84,14 @@ class MRDTests(unittest.TestCase):
             seed=7,
         )
 
-        self.assertEqual(first_scores, second_scores)
+        assert first_scores == second_scores
         payload = build_mrd_payload(
             scores_by_index=first_scores,
             metadata={"model_path": "toy-model", "forget_split": "forget10"},
         )
-        self.assertEqual(sorted(payload["scores_by_index"].keys()), ["2", "5"])
-        self.assertEqual(sorted(payload["weights_by_index"].keys()), ["2", "5"])
-        self.assertIn("score", payload["scores_by_index"]["2"])
+        assert sorted(payload["scores_by_index"].keys()) == ["2", "5"]
+        assert sorted(payload["weights_by_index"].keys()) == ["2", "5"]
+        assert "score" in payload["scores_by_index"]["2"]
 
     def test_weighted_sampler_aligns_weights_to_anchor_indices(self):
         forget_dataset = _ToyDataset(
@@ -122,8 +121,8 @@ class MRDTests(unittest.TestCase):
             }
             sampler = trainer._get_train_sampler()
 
-        self.assertEqual(sampler.weights.tolist(), [0.7, 0.3, 0.5])
-        self.assertEqual(sampler.num_samples, 3)
+        assert sampler.weights.tolist() == [0.7, 0.3, 0.5]
+        assert sampler.num_samples == 3
 
     def test_mrd_configs_compose(self):
         with initialize_config_dir(version_base=None, config_dir=str(ROOT / "configs")):
@@ -136,19 +135,15 @@ class MRDTests(unittest.TestCase):
                 overrides=["experiment=unlearn/tofu/mrd_npo"],
             )
 
-        self.assertEqual(mrd_cfg.forget_split, "forget10")
-        self.assertEqual(unlearn_cfg.trainer.train_sampler, "weighted")
-        self.assertIn("weights_path", unlearn_cfg.trainer.train_sampler_args)
+        assert mrd_cfg.forget_split == "forget10"
+        assert unlearn_cfg.trainer.train_sampler == "weighted"
+        assert "weights_path" in unlearn_cfg.trainer.train_sampler_args
 
     def test_mrd_run_script_is_present_and_compilable(self):
         script_path = ROOT / "community" / "methods" / "MRD-NPO" / "run.py"
         script_text = script_path.read_text(encoding="utf-8")
 
-        self.assertIn("REFRESH_EPOCHS", script_text)
-        self.assertIn("src/mrd.py", script_text)
-        self.assertIn("trainer.train_sampler_args.weights_path", script_text)
+        assert "REFRESH_EPOCHS" in script_text
+        assert "src/mrd.py" in script_text
+        assert "trainer.train_sampler_args.weights_path" in script_text
         subprocess.run([sys.executable, "-m", "py_compile", str(script_path)], check=True)
-
-
-if __name__ == "__main__":
-    unittest.main()

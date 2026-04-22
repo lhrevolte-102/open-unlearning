@@ -2,13 +2,13 @@ import json
 import subprocess
 import sys
 import tempfile
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import datasets
 import numpy as np
+import pytest
 import torch
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
@@ -99,11 +99,11 @@ class _FakeSummaryWriter:
         self.flushed = True
 
 
-class SelectiveTests(unittest.TestCase):
+class TestSelective:
     def test_configure_torch_checkpoint_safe_globals_allows_numpy_rng_load(self):
         clear_safe_globals = getattr(torch.serialization, "clear_safe_globals", None)
         if clear_safe_globals is None:
-            self.skipTest("torch.serialization.clear_safe_globals is unavailable")
+            pytest.skip("torch.serialization.clear_safe_globals is unavailable")
 
         numpy_rng_payload = {"numpy": np.random.get_state()}
 
@@ -112,18 +112,17 @@ class SelectiveTests(unittest.TestCase):
             torch.save(numpy_rng_payload, checkpoint_path)
 
             clear_safe_globals()
-            with self.assertRaises(Exception):
+            with pytest.raises(Exception):
                 torch.load(checkpoint_path, weights_only=True)
 
             configure_torch_checkpoint_safe_globals()
             restored = torch.load(checkpoint_path, weights_only=True)
 
-        self.assertIn("numpy", restored)
+        assert "numpy" in restored
 
     def test_get_tensorboard_log_dir_uses_output_logs_subdirectory(self):
-        self.assertEqual(
-            get_tensorboard_log_dir("/tmp/selective-run"),
-            Path("/tmp/selective-run/logs"),
+        assert get_tensorboard_log_dir("/tmp/selective-run") == Path(
+            "/tmp/selective-run/logs"
         )
 
     def test_log_tensorboard_metrics_ignores_non_scalars(self):
@@ -141,14 +140,11 @@ class SelectiveTests(unittest.TestCase):
             step=7,
         )
 
-        self.assertEqual(
-            writer.scalars,
-            [
-                ("tofu/loss", 1.25, 7),
-                ("tofu/accuracy", 0.5, 7),
-            ],
-        )
-        self.assertTrue(writer.flushed)
+        assert writer.scalars == [
+            ("tofu/loss", 1.25, 7),
+            ("tofu/accuracy", 0.5, 7),
+        ]
+        assert writer.flushed
 
     def test_reference_manifest_contains_expected_records(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -179,10 +175,10 @@ class SelectiveTests(unittest.TestCase):
                 validate_checkpoint_paths=True,
             )
 
-            self.assertEqual(reference_manifest["metadata"]["num_reference_models"], 2)
-            self.assertEqual(len(reference_manifest["references"]), 2)
-            self.assertTrue(
-                reference_manifest["references"][0]["checkpoint_path"].endswith("split0")
+            assert reference_manifest["metadata"]["num_reference_models"] == 2
+            assert len(reference_manifest["references"]) == 2
+            assert reference_manifest["references"][0]["checkpoint_path"].endswith(
+                "split0"
             )
 
     def test_random_repeated_halving_manifests_cover_full_dataset_per_repeat(self):
@@ -194,41 +190,40 @@ class SelectiveTests(unittest.TestCase):
                 repeat_split_seed=11,
             )
 
-        self.assertEqual(len(split_manifests), 6)
+        assert len(split_manifests) == 6
         heldout_counts = {idx: 0 for idx in range(7)}
         for repeat_id in range(3):
             repeat_splits = [
                 split for split in split_manifests if split["repeat_id"] == repeat_id
             ]
-            self.assertEqual(len(repeat_splits), 2)
+            assert len(repeat_splits) == 2
 
             part0 = next(split for split in repeat_splits if split["partition_id"] == 0)
             part1 = next(split for split in repeat_splits if split["partition_id"] == 1)
 
-            self.assertEqual(part0["split_id"], repeat_id * 2)
-            self.assertEqual(part1["split_id"], repeat_id * 2 + 1)
-            self.assertEqual(part0["split_seed"], 11 + repeat_id)
-            self.assertEqual(part1["split_seed"], 11 + repeat_id)
-            self.assertEqual(
-                set(part0["train_indices"]) | set(part0["heldout_indices"]),
-                set(range(7)),
+            assert part0["split_id"] == repeat_id * 2
+            assert part1["split_id"] == repeat_id * 2 + 1
+            assert part0["split_seed"] == 11 + repeat_id
+            assert part1["split_seed"] == 11 + repeat_id
+            assert set(part0["train_indices"]) | set(part0["heldout_indices"]) == set(
+                range(7)
             )
-            self.assertFalse(
-                set(part0["train_indices"]) & set(part0["heldout_indices"])
-            )
-            self.assertEqual(part0["train_indices"], part1["heldout_indices"])
-            self.assertEqual(part1["train_indices"], part0["heldout_indices"])
+            assert not (set(part0["train_indices"]) & set(part0["heldout_indices"]))
+            assert part0["train_indices"] == part1["heldout_indices"]
+            assert part1["train_indices"] == part0["heldout_indices"]
 
             for idx in part0["heldout_indices"]:
                 heldout_counts[idx] += 1
             for idx in part1["heldout_indices"]:
                 heldout_counts[idx] += 1
 
-        self.assertTrue(all(count == 3 for count in heldout_counts.values()))
+        assert all(count == 3 for count in heldout_counts.values())
 
     def test_random_repeated_halving_requires_explicit_repeat_count(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            with self.assertRaisesRegex(ValueError, "num_repeats must be explicitly set"):
+            with pytest.raises(
+                ValueError, match="num_repeats must be explicitly set"
+            ):
                 build_reference_split_manifests(
                     all_indices=[0, 1, 2, 3],
                     output_dir=tmp_dir,
@@ -258,8 +253,8 @@ class SelectiveTests(unittest.TestCase):
                     allowed_indices_path=manifest_path,
                 )
 
-        self.assertEqual(len(qa_dataset), 2)
-        self.assertEqual(qa_dataset.data["index"], [0, 2])
+        assert len(qa_dataset) == 2
+        assert qa_dataset.data["index"] == [0, 2]
 
     def test_load_allowed_indices_can_preserve_manifest_order(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -268,10 +263,12 @@ class SelectiveTests(unittest.TestCase):
                 json.dumps({"allowed_indices": [2, 0, 2, 1]}), encoding="utf-8"
             )
 
-            self.assertEqual(load_allowed_indices(manifest_path), [0, 1, 2])
-            self.assertEqual(
-                load_allowed_indices(manifest_path, preserve_order=True), [2, 0, 1]
-            )
+            assert load_allowed_indices(manifest_path) == [0, 1, 2]
+            assert load_allowed_indices(manifest_path, preserve_order=True) == [
+                2,
+                0,
+                1,
+            ]
 
     def test_qa_dataset_preserves_manifest_order_when_requested(self):
         dataset = datasets.Dataset.from_dict(
@@ -297,8 +294,8 @@ class SelectiveTests(unittest.TestCase):
                     preserve_manifest_order=True,
                 )
 
-        self.assertEqual(len(qa_dataset), 3)
-        self.assertEqual(qa_dataset.data["index"], [2, 0, 1])
+        assert len(qa_dataset) == 3
+        assert qa_dataset.data["index"] == [2, 0, 1]
 
     def test_idk_dataset_deterministic_sampling_and_index(self):
         dataset = datasets.Dataset.from_dict({"question": ["q0"], "answer": ["a0"]})
@@ -321,11 +318,11 @@ class SelectiveTests(unittest.TestCase):
                 first = qa_dataset[0]
                 second = qa_dataset[0]
 
-        self.assertTrue(
-            torch.equal(first["alternate"]["input_ids"], second["alternate"]["input_ids"])
+        assert torch.equal(
+            first["alternate"]["input_ids"], second["alternate"]["input_ids"]
         )
-        self.assertEqual(first["alternate"]["index"], 0)
-        self.assertEqual(first["alternate"]["index"], first["original"]["index"])
+        assert first["alternate"]["index"] == 0
+        assert first["alternate"]["index"] == first["original"]["index"]
 
     def test_alternate_dataset_propagates_original_index(self):
         dataset = datasets.Dataset.from_dict(
@@ -346,8 +343,8 @@ class SelectiveTests(unittest.TestCase):
             )
             item = qa_dataset[0]
 
-        self.assertEqual(item["alternate"]["index"], 0)
-        self.assertEqual(item["alternate"]["index"], item["original"]["index"])
+        assert item["alternate"]["index"] == 0
+        assert item["alternate"]["index"] == item["original"]["index"]
 
     def test_compute_unlearning_forget_losses_supports_npo_and_idkdpo(self):
         model = _FakeModel(_make_logits([(0, 1), (1, 0)]))
@@ -380,11 +377,11 @@ class SelectiveTests(unittest.TestCase):
             beta=0.1,
         )
 
-        self.assertEqual(npo_indices, [10, 11])
-        self.assertEqual(idk_indices, [10, 11])
-        self.assertEqual(len(npo_losses), 2)
-        self.assertEqual(len(idk_losses), 2)
-        self.assertTrue(all(isinstance(loss, float) for loss in npo_losses + idk_losses))
+        assert npo_indices == [10, 11]
+        assert idk_indices == [10, 11]
+        assert len(npo_losses) == 2
+        assert len(idk_losses) == 2
+        assert all(isinstance(loss, float) for loss in npo_losses + idk_losses)
 
     def test_compute_unlearning_forget_losses_reports_method_batch_mismatch(self):
         model = _FakeModel(_make_logits([(0, 1), (1, 0)]))
@@ -404,7 +401,7 @@ class SelectiveTests(unittest.TestCase):
             },
         }
 
-        with self.assertRaisesRegex(ValueError, "method='npo'"):
+        with pytest.raises(ValueError, match="method='npo'"):
             compute_unlearning_forget_losses(
                 model=model,
                 ref_model=ref_model,
@@ -415,17 +412,12 @@ class SelectiveTests(unittest.TestCase):
 
     def test_selective_configs_allow_experiment_method_override(self):
         with initialize_config_dir(version_base=None, config_dir=str(ROOT / "configs")):
-            prepare_cfg = compose(
-                config_name="selective_prepare.yaml",
-                overrides=["experiment=selective/tofu/idkdpo"],
-            )
-            reference_cfg = compose(
-                config_name="selective_reference.yaml",
+            selective_cfg = compose(
+                config_name="selective.yaml",
                 overrides=["experiment=selective/tofu/idkdpo"],
             )
 
-        self.assertEqual(prepare_cfg.method, "IdkDPO")
-        self.assertEqual(reference_cfg.method, "IdkDPO")
+        assert selective_cfg.method == "IdkDPO"
 
     def test_difficulty_payload_and_stage_manifests_cover_missing_scores(self):
         payload = build_difficulty_payload(
@@ -448,17 +440,17 @@ class SelectiveTests(unittest.TestCase):
         )
 
         scores = payload["scores_by_index"]
-        self.assertEqual(scores["0"]["num_refs"], 2)
-        self.assertLess(scores["0"]["rank"], scores["2"]["rank"])
-        self.assertLess(scores["2"]["rank"], scores["1"]["rank"])
-        self.assertEqual(manifests[0]["allowed_indices"], [0, 2])
-        self.assertTrue(
-            set(manifests[0]["allowed_indices"]).issubset(manifests[1]["allowed_indices"])
+        assert scores["0"]["num_refs"] == 2
+        assert scores["0"]["rank"] < scores["2"]["rank"]
+        assert scores["2"]["rank"] < scores["1"]["rank"]
+        assert manifests[0]["allowed_indices"] == [0, 2]
+        assert set(manifests[0]["allowed_indices"]).issubset(
+            manifests[1]["allowed_indices"]
         )
-        self.assertTrue(
-            set(manifests[1]["allowed_indices"]).issubset(manifests[2]["allowed_indices"])
+        assert set(manifests[1]["allowed_indices"]).issubset(
+            manifests[2]["allowed_indices"]
         )
-        self.assertEqual(manifests[2]["allowed_indices"], [0, 2, 1, 3])
+        assert manifests[2]["allowed_indices"] == [0, 2, 1, 3]
 
     def test_apply_intra_stage_ordering_sets_dataset_and_sampler(self):
         cfg = OmegaConf.create(
@@ -487,10 +479,8 @@ class SelectiveTests(unittest.TestCase):
         ):
             apply_intra_stage_ordering(cfg)
 
-        self.assertEqual(cfg.trainer.train_sampler, "sequential")
-        self.assertTrue(
-            cfg.data.forget.TOFU_QA_forget_idk.args.preserve_manifest_order
-        )
+        assert cfg.trainer.train_sampler == "sequential"
+        assert cfg.data.forget.TOFU_QA_forget_idk.args.preserve_manifest_order
 
     def test_apply_intra_stage_ordering_rejects_non_forget_anchor(self):
         cfg = OmegaConf.create(
@@ -508,7 +498,7 @@ class SelectiveTests(unittest.TestCase):
         )
 
         with patch("selective.runtime.torch.cuda.device_count", return_value=1):
-            with self.assertRaisesRegex(ValueError, "data.anchor=forget"):
+            with pytest.raises(ValueError, match="data.anchor=forget"):
                 apply_intra_stage_ordering(cfg)
 
     def test_apply_intra_stage_ordering_rejects_group_by_length(self):
@@ -527,7 +517,7 @@ class SelectiveTests(unittest.TestCase):
         )
 
         with patch("selective.runtime.torch.cuda.device_count", return_value=1):
-            with self.assertRaisesRegex(ValueError, "group_by_length"):
+            with pytest.raises(ValueError, match="group_by_length"):
                 apply_intra_stage_ordering(cfg)
 
     def test_apply_intra_stage_ordering_rejects_multi_process(self):
@@ -548,7 +538,7 @@ class SelectiveTests(unittest.TestCase):
         with patch.dict("os.environ", {"WORLD_SIZE": "2"}, clear=False), patch(
             "selective.runtime.torch.cuda.device_count", return_value=1
         ):
-            with self.assertRaisesRegex(ValueError, "single-process"):
+            with pytest.raises(ValueError, match="single-process"):
                 apply_intra_stage_ordering(cfg)
 
     def test_finetune_trainer_uses_configured_train_sampler(self):
@@ -558,10 +548,10 @@ class SelectiveTests(unittest.TestCase):
         trainer.processing_class = None
 
         trainer.train_sampler = "sequential"
-        self.assertIsInstance(trainer._get_train_sampler(), SequentialSampler)
+        assert isinstance(trainer._get_train_sampler(), SequentialSampler)
 
         trainer.train_sampler = "random"
-        self.assertIsInstance(trainer._get_train_sampler(), RandomSampler)
+        assert isinstance(trainer._get_train_sampler(), RandomSampler)
 
     def test_prepare_difficulty_payload_reads_reference_manifest(self):
         dataset = datasets.Dataset.from_dict(
@@ -633,10 +623,10 @@ class SelectiveTests(unittest.TestCase):
                 return {int(idx): [float(idx)] for idx in subset_indices}
 
             with patch(
-                "selective_prepare._load_model_from_path",
+                "selective.pipeline._load_model_from_path",
                 side_effect=lambda model_cfg, model_path: model_path,
             ), patch(
-                "selective_prepare.score_dataset_with_reference",
+                "selective.pipeline.score_dataset_with_reference",
                 side_effect=_score_dataset_with_reference,
             ):
                 difficulty_payload = prepare_difficulty_payload(
@@ -650,100 +640,81 @@ class SelectiveTests(unittest.TestCase):
                 split_manifests[0]["heldout_indices"],
                 split_manifests[1]["heldout_indices"],
             ]
-            self.assertEqual(seen_subsets, expected_subsets)
-            self.assertEqual(
-                difficulty_payload["metadata"]["reference_manifest_path"],
-                str(reference_manifest_path),
+            assert seen_subsets == expected_subsets
+            assert difficulty_payload["metadata"]["reference_manifest_path"] == str(
+                reference_manifest_path
             )
-            self.assertEqual(difficulty_payload["metadata"]["num_reference_models"], 2)
-            self.assertEqual(difficulty_payload["metadata"]["num_unscored_examples"], 0)
-            self.assertEqual(difficulty_payload["metadata"]["coverage_fraction"], 1.0)
-            self.assertEqual(
-                sorted(int(idx) for idx in difficulty_payload["scores_by_index"].keys()),
-                [0, 1, 2, 3],
-            )
+            assert difficulty_payload["metadata"]["num_reference_models"] == 2
+            assert difficulty_payload["metadata"]["num_unscored_examples"] == 0
+            assert difficulty_payload["metadata"]["coverage_fraction"] == 1.0
+            assert sorted(
+                int(idx) for idx in difficulty_payload["scores_by_index"].keys()
+            ) == [0, 1, 2, 3]
 
-    def test_selective_scripts_have_valid_bash_syntax(self):
-        subprocess.run(
-            ["bash", "-n", str(ROOT / "community" / "methods" / "Selective-DPO" / "run.sh")],
-            check=True,
-        )
-        subprocess.run(
-            ["bash", "-n", str(ROOT / "community" / "methods" / "Selective-NPO" / "run.sh")],
-            check=True,
-        )
+    def test_selective_scripts_are_present_and_compilable(self):
+        dpo_script = ROOT / "community" / "methods" / "Selective-DPO" / "run.py"
+        npo_script = ROOT / "community" / "methods" / "Selective-NPO" / "run.py"
+
+        assert dpo_script.is_file()
+        assert npo_script.is_file()
+        subprocess.run([sys.executable, "-m", "py_compile", str(dpo_script)], check=True)
+        subprocess.run([sys.executable, "-m", "py_compile", str(npo_script)], check=True)
 
     def test_selective_scripts_add_non_schema_trainer_args_with_hydra_plus_prefix(self):
         dpo_script = (
-            ROOT / "community" / "methods" / "Selective-DPO" / "run.sh"
+            ROOT / "community" / "methods" / "Selective-DPO" / "run.py"
         ).read_text(encoding="utf-8")
         npo_script = (
-            ROOT / "community" / "methods" / "Selective-NPO" / "run.sh"
+            ROOT / "community" / "methods" / "Selective-NPO" / "run.py"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("+trainer.args.save_total_limit=1", dpo_script)
-        self.assertIn("+trainer.args.save_total_limit=1", npo_script)
-        self.assertIn("+trainer.args.ignore_data_skip=true", dpo_script)
-        self.assertIn("+trainer.args.ignore_data_skip=true", npo_script)
-        self.assertIn('NUM_REFERENCE_REPEATS="${NUM_REFERENCE_REPEATS:-3}"', dpo_script)
-        self.assertIn('NUM_REFERENCE_REPEATS="${NUM_REFERENCE_REPEATS:-3}"', npo_script)
-        self.assertIn('INTRA_STAGE_ORDER="${INTRA_STAGE_ORDER:-random}"', dpo_script)
-        self.assertIn('INTRA_STAGE_ORDER="${INTRA_STAGE_ORDER:-random}"', npo_script)
+        assert "+trainer.args.save_total_limit=1" in dpo_script
+        assert "+trainer.args.save_total_limit=1" in npo_script
+        assert "+trainer.args.ignore_data_skip=true" in dpo_script
+        assert "+trainer.args.ignore_data_skip=true" in npo_script
+        assert '"NUM_REFERENCE_REPEATS": "3"' in dpo_script
+        assert '"NUM_REFERENCE_REPEATS": "3"' in npo_script
+        assert '"INTRA_STAGE_ORDER": "random"' in dpo_script
+        assert '"INTRA_STAGE_ORDER": "random"' in npo_script
 
     def test_selective_scripts_warm_start_next_stage_from_previous_model(self):
         dpo_script = (
-            ROOT / "community" / "methods" / "Selective-DPO" / "run.sh"
+            ROOT / "community" / "methods" / "Selective-DPO" / "run.py"
         ).read_text(encoding="utf-8")
         npo_script = (
-            ROOT / "community" / "methods" / "Selective-NPO" / "run.sh"
+            ROOT / "community" / "methods" / "Selective-NPO" / "run.py"
         ).read_text(encoding="utf-8")
 
-        self.assertIn('STAGE_MODEL_PATH="${BASE_MODEL_PATH}"', dpo_script)
-        self.assertIn('STAGE_MODEL_PATH="${BASE_MODEL_PATH}"', npo_script)
-        self.assertIn(
-            'model.model_args.pretrained_model_name_or_path=${STAGE_MODEL_PATH}',
-            dpo_script,
+        assert "stage_model_path = cfg.base_model_path" in dpo_script
+        assert "stage_model_path = cfg.base_model_path" in npo_script
+        assert "stage_model_path = str(latest_checkpoint)" in dpo_script
+        assert "stage_model_path = str(latest_checkpoint)" in npo_script
+        assert (
+            'f"model.model_args.pretrained_model_name_or_path={pretrained_model_path}"'
+            in dpo_script
         )
-        self.assertIn(
-            'model.model_args.pretrained_model_name_or_path=${STAGE_MODEL_PATH}',
-            npo_script,
+        assert (
+            'f"model.model_args.pretrained_model_name_or_path={pretrained_model_path}"'
+            in npo_script
         )
 
     def test_selective_scripts_use_short_output_prefixes(self):
         dpo_script = (
-            ROOT / "community" / "methods" / "Selective-DPO" / "run.sh"
+            ROOT / "community" / "methods" / "Selective-DPO" / "run.py"
         ).read_text(encoding="utf-8")
         npo_script = (
-            ROOT / "community" / "methods" / "Selective-NPO" / "run.sh"
+            ROOT / "community" / "methods" / "Selective-NPO" / "run.py"
         ).read_text(encoding="utf-8")
 
-        self.assertIn(
-            'TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_dpo"',
-            dpo_script,
+        assert (
+            'return f"tofu_{self.model}_{self.forget_split}_{self.reference_prepare_config_suffix}"'
+            in dpo_script
         )
-        self.assertIn(
-            'REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_dpo"',
-            dpo_script,
+        assert (
+            'return f"{self.reference_task_prefix}_references"'
+            in npo_script
         )
-        self.assertIn(
-            'REFERENCE_SPLITS_DIR="${REFERENCE_DIR}/reference_splits"',
-            dpo_script,
-        )
-        self.assertIn(
-            'TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_selective_npo"',
-            npo_script,
-        )
-        self.assertIn(
-            'REFERENCE_TASK_PREFIX="tofu_${MODEL}_${FORGET_SPLIT}_references_npo"',
-            npo_script,
-        )
-        self.assertIn(
-            'REFERENCE_SPLITS_DIR="${REFERENCE_DIR}/reference_splits"',
-            npo_script,
-        )
-        self.assertIn('run_selective_order "${INTRA_STAGE_ORDER}"', dpo_script)
-        self.assertIn('run_selective_order "${INTRA_STAGE_ORDER}"', npo_script)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert 'return self.reference_dir / "reference_splits"' in dpo_script
+        assert 'return self.reference_dir / "reference_splits"' in npo_script
+        assert 'f"{self.stage_task_base_prefix}_{self.intra_stage_order}"' in dpo_script
+        assert 'f"{self.stage_task_base_prefix}_{self.intra_stage_order}"' in npo_script
