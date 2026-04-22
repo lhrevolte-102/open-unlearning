@@ -29,7 +29,9 @@ ENV_DEFAULTS = {
     "STAGE_SUBSET_MODE": "cumulative",
     "STAGE_SPLIT_SEED": "0",
     "MAX_STAGE_ID": "0",
+    "LEARNING_RATE": "1e-5",
     "BETA": "0.1",
+    "ALPHA": "1",
     "PER_DEVICE_TRAIN_BATCH_SIZE": "16",
     "GRADIENT_ACCUMULATION_STEPS": "4",
     "TRAIN_LOGGING_STEPS": "1",
@@ -78,7 +80,9 @@ class RunConfig:
     stage_subset_mode: str
     stage_split_seed: int
     max_stage_id: int
+    learning_rate: str
     beta: str
+    alpha: str
     per_device_train_batch_size: str
     gradient_accumulation_steps: str
     train_logging_steps: str
@@ -141,7 +145,9 @@ def load_config() -> RunConfig:
         stage_subset_mode=env_value("STAGE_SUBSET_MODE"),
         stage_split_seed=int(env_value("STAGE_SPLIT_SEED")),
         max_stage_id=int(env_value("MAX_STAGE_ID")),
+        learning_rate=env_value("LEARNING_RATE"),
         beta=env_value("BETA"),
+        alpha=env_value("ALPHA"),
         per_device_train_batch_size=env_value("PER_DEVICE_TRAIN_BATCH_SIZE"),
         gradient_accumulation_steps=env_value("GRADIENT_ACCUMULATION_STEPS"),
         train_logging_steps=env_value("TRAIN_LOGGING_STEPS"),
@@ -241,8 +247,10 @@ def common_train_args(cfg: RunConfig, pretrained_model_path: str) -> list[str]:
         f"model.tokenizer_args.pretrained_model_name_or_path={cfg.base_model_path}",
         f"retain_logs_path={cfg.retain_logs_path}",
         f"trainer.method_args.beta={cfg.beta}",
+        f"trainer.method_args.alpha={cfg.alpha}",
         f"trainer.args.per_device_train_batch_size={cfg.per_device_train_batch_size}",
         f"trainer.args.gradient_accumulation_steps={cfg.gradient_accumulation_steps}",
+        f"trainer.args.learning_rate={cfg.learning_rate}",
         f"trainer.args.logging_steps={cfg.train_logging_steps}",
         "+trainer.args.logging_first_step=true",
         "trainer.args.gradient_checkpointing=true",

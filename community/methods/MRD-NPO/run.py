@@ -31,6 +31,7 @@ ENV_DEFAULTS = {
     "REFRESH_EPOCHS": "1",
     "LEARNING_RATE": "1e-5",
     "BETA": "0.1",
+    "ALPHA": "1",
     "PER_DEVICE_TRAIN_BATCH_SIZE": "16",
     "GRADIENT_ACCUMULATION_STEPS": "4",
     "TRAIN_LOGGING_STEPS": "1",
@@ -114,6 +115,7 @@ class RunConfig:
     refresh_epochs: float
     learning_rate: str
     beta: str
+    alpha: str
     per_device_train_batch_size: str
     gradient_accumulation_steps: str
     train_logging_steps: str
@@ -137,8 +139,19 @@ class RunConfig:
         return f"saves/eval/tofu_{self.model}_{self.retain_split}/TOFU_EVAL.json"
 
     @property
+    def run_config_suffix(self) -> str:
+        return (
+            f"mrd_npo_lr{self.learning_rate}_beta{self.beta}_alpha{self.alpha}_"
+            f"epoch{self.total_epochs_token}_refresh{self.refresh_epochs_token}"
+        )
+
+    @property
     def task_prefix(self) -> str:
-        return f"tofu_{self.model}_{self.forget_split}_mrd_npo"
+        return f"tofu_{self.model}_{self.forget_split}_{self.run_config_suffix}"
+
+    @property
+    def mrd_task_prefix(self) -> str:
+        return f"{self.task_prefix}_mrd"
 
     @property
     def num_rounds(self) -> int:
@@ -153,7 +166,7 @@ class RunConfig:
         return f"{self.task_prefix}_round{round_id + 1:02d}"
 
     def round_mrd_task_name(self, round_id: int) -> str:
-        return f"{self.round_task_name(round_id)}_mrd"
+        return f"{self.mrd_task_prefix}_round{round_id + 1:02d}"
 
     def round_output_dir(self, round_id: int) -> Path:
         return UNLEARN_ROOT / self.round_task_name(round_id)
@@ -178,6 +191,7 @@ def load_config() -> RunConfig:
         refresh_epochs=float(refresh_epochs_token),
         learning_rate=env_value("LEARNING_RATE"),
         beta=env_value("BETA"),
+        alpha=env_value("ALPHA"),
         per_device_train_batch_size=env_value("PER_DEVICE_TRAIN_BATCH_SIZE"),
         gradient_accumulation_steps=env_value("GRADIENT_ACCUMULATION_STEPS"),
         train_logging_steps=env_value("TRAIN_LOGGING_STEPS"),
@@ -199,6 +213,7 @@ def common_train_args(cfg: RunConfig, pretrained_model_path: str) -> list[str]:
         f"model.tokenizer_args.pretrained_model_name_or_path={cfg.base_model_path}",
         f"retain_logs_path={cfg.retain_logs_path}",
         f"trainer.method_args.beta={cfg.beta}",
+        f"trainer.method_args.alpha={cfg.alpha}",
         f"trainer.args.per_device_train_batch_size={cfg.per_device_train_batch_size}",
         f"trainer.args.gradient_accumulation_steps={cfg.gradient_accumulation_steps}",
         f"trainer.args.learning_rate={cfg.learning_rate}",

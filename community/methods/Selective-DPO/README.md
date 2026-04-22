@@ -1,6 +1,6 @@
 # Selective-DPO
 
-- Repository-local adaptation of the selective curriculum idea applied to IdkDPO.
+- Selective curriculum variant of IdkDPO on TOFU.
 - Method base: OpenUnlearning TOFU unlearning with a difficulty-aware, staged forget schedule.
 - Selective data ordering is built from held-out reference splits, then used to train staged unlearning runs from easy to hard.
 - Optional control: set `INTRA_STAGE_ORDER=strict` to keep stage coverage unchanged while forcing each stage epoch to traverse forget samples in easy-to-hard difficulty order.
@@ -30,23 +30,22 @@
 
 # Results
 
-Run [`run.py`](./run.py). The script now runs a single intra-stage ordering mode at a time and defaults to `INTRA_STAGE_ORDER=random`. Set `INTRA_STAGE_ORDER=strict` to run the strict intra-stage ordering control.
+Run [`run.py`](./run.py). The script supports a single intra-stage ordering mode at a time and defaults to `INTRA_STAGE_ORDER=random`. Set `INTRA_STAGE_ORDER=strict` to run the strict intra-stage ordering control.
 
 - Stage subset modes:
   - `STAGE_SUBSET_MODE=cumulative` interprets `STAGE_PERCENTILES` as cumulative difficulty thresholds, e.g. `[0.3, 0.6, 1.0]`.
   - `STAGE_SUBSET_MODE=disjoint` interprets `STAGE_PERCENTILES` as mutually exclusive stage shares that must sum to `1.0`, e.g. `[0.3, 0.3, 0.4]`.
 
 - Output layout:
-  - Reference artifacts now live under `saves/selective/reference/${REFERENCE_TASK_NAME}`.
-  - Difficulty scores now live under `saves/selective/prepare/${TASK_PREFIX}_prepare`.
-  - Stage manifests now live under `saves/selective/stage/${TASK_PREFIX}_${INTRA_STAGE_ORDER}_stages`.
-  - Stage checkpoints and final evals continue to live under `saves/unlearn/${task_name}`.
+  - Reference artifacts live under `saves/selective/reference/${REFERENCE_TASK_NAME}`.
+  - Difficulty scores live under `saves/selective/prepare/${TASK_PREFIX}_prepare`.
+  - Stage manifests live under `saves/selective/stage/${TASK_PREFIX}_${INTRA_STAGE_ORDER}_stages`.
+  - Stage checkpoints and final evals are written under `saves/unlearn/${task_name}`.
   - Final evals use the full TOFU metric suite, including exact memorization and the MIA metrics.
   - TensorBoard logs are written under each run's `${output_dir}/logs`.
 
 - Reference split setup:
-  - The script always uses repeated random 50/50 partitions and trains one reference model on each half, so every repeat yields two cross-evaluating reference models.
-  - This split strategy is now implicit in the artifact names, so output directories no longer include the old `random_repeated_halving` suffix.
+  - The script uses repeated random 50/50 partitions and trains one reference model on each half, so every repeat yields two cross-evaluating reference models.
   - `NUM_REFERENCE_REPEATS` controls how many random partitions are used. For example, `NUM_REFERENCE_REPEATS=3` yields 3 random partitions and 6 reference models.
 
 - Resume behavior:
@@ -56,4 +55,4 @@ Run [`run.py`](./run.py). The script now runs a single intra-stage ordering mode
 
 # Citation
 
-This is a repository-local adaptation rather than a separate paper artifact. If you use it, please cite the OpenUnlearning technical report and the Selective DPO paper that motivates the curriculum idea.
+Selective-DPO is a TOFU variant of the selective curriculum idea. If you use it, cite the OpenUnlearning technical report and the Selective DPO paper that motivates the curriculum idea.

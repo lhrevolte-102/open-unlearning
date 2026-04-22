@@ -1,25 +1,29 @@
 # MRD-NPO
 
-- Repository-local implementation of the MRD-weighted NPO variant from *A Neuro-inspired Interpretation of Unlearning in Large Language Models through Sample-level Unlearning Difficulty*.
-- Scope of this integration: TOFU only, using OpenUnlearning's existing NPO trainer, data preprocessing, and TOFU evaluation.
-- The `mrd/` directory in this repository is treated as archival experiment code and is not used directly.
+- MRD-weighted NPO for TOFU, based on *A Neuro-inspired Interpretation of Unlearning in Large Language Models through Sample-level Unlearning Difficulty*.
+- Uses OpenUnlearning's existing NPO trainer, data preprocessing, and TOFU evaluation.
+- The archived `mrd/` directory is not used directly by this method.
 
 # Setup
 
-- Method flow:
+- Workflow:
   - score current forget samples with MRD
   - convert MRD scores into weighted sampling probabilities
   - run one NPO round
   - refresh MRD from the latest checkpoint and continue
-- Default runtime assumptions:
+- Runtime assumptions:
   - single process
   - single visible GPU
   - `trainer.train_sampler=weighted`
 - Key environment variables:
   - `MODEL`, `FORGET_SPLIT`, `RETAIN_SPLIT`
   - `TOTAL_EPOCHS`, `REFRESH_EPOCHS`
-  - `LEARNING_RATE`, `BETA`
+  - `LEARNING_RATE`, `BETA`, `ALPHA`
   - `MRD_SIGMA`, `MRD_NUM_MC_SAMPLES`, `MRD_BATCH_SIZE`, `MRD_EPS`
+- Default optimization settings:
+  - `LEARNING_RATE=1e-5`
+  - `BETA=0.1`
+  - `ALPHA=1`
 
 # Results
 
@@ -28,6 +32,9 @@ Run [`run.py`](./run.py).
 - MRD artifacts are written under `saves/mrd/${task_name}`.
 - Round checkpoints are written under `saves/unlearn/${task_name}`.
 - Final TOFU evaluation is written under the last round directory's `evals/`.
+- Naming follows the same pattern as `Selective-DPO` / `Selective-NPO`: a stable base `task_prefix` plus a role suffix. The `task_prefix` encodes the main run-affecting hyperparameters: `lr`, `beta`, `alpha`, `epoch`, and `refresh`.
+- Example training task name: `tofu_${MODEL}_${FORGET_SPLIT}_mrd_npo_lr1e-5_beta0.1_alpha1_epoch5_refresh1_round01`.
+- Example MRD task name: `tofu_${MODEL}_${FORGET_SPLIT}_mrd_npo_lr1e-5_beta0.1_alpha1_epoch5_refresh1_mrd_round01`.
 
 # Citation
 
