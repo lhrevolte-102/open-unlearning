@@ -58,6 +58,7 @@ def load_trainer(
     trainer_args = trainer_cfg.args
     method_args = trainer_cfg.get("method_args", {})
     train_sampler = trainer_cfg.get("train_sampler", "random")
+    train_sampler_args = trainer_cfg.get("train_sampler_args", {})
     trainer_args = load_trainer_args(trainer_args, train_dataset)
     trainer_handler_name = trainer_cfg.get("handler")
     assert trainer_handler_name is not None, ValueError(
@@ -80,6 +81,7 @@ def load_trainer(
     )
     if issubclass(trainer_cls, FinetuneTrainer):
         trainer_kwargs["train_sampler"] = train_sampler
+        trainer_kwargs["train_sampler_args"] = train_sampler_args
 
     trainer = trainer_cls(
         **trainer_kwargs,

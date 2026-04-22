@@ -44,3 +44,35 @@ class ForgetRetainDataset(Dataset):
                 forget_idx = torch.randint(0, len(self.forget), (1,)).item()
                 item["forget"] = self.forget[forget_idx]
         return item
+
+    def _resolve_anchor_dataset(self):
+        if self.anchor == "forget":
+            dataset = self.forget
+        elif self.anchor == "retain":
+            dataset = self.retain
+        else:
+            raise NotImplementedError(f"{self.anchor} can be only forget or retain")
+
+        if dataset is None:
+            raise ValueError(
+                f"{self.anchor} dataset can't be None when requesting anchor indices"
+            )
+        return dataset
+
+    def get_anchor_indices(self) -> list[int]:
+        dataset = self._resolve_anchor_dataset()
+        dataset_data = getattr(dataset, "data", None)
+        if dataset_data is not None:
+            column_names = getattr(dataset_data, "column_names", None)
+            if column_names is not None and "index" in column_names:
+                return [int(idx) for idx in dataset_data["index"]]
+
+        indices = []
+        for idx in range(len(dataset)):
+            sample = dataset[idx]
+            if not isinstance(sample, dict) or "index" not in sample:
+                raise ValueError(
+                    "Weighted sampling requires the anchor dataset to expose an 'index' field"
+                )
+            indices.append(int(sample["index"]))
+        return indices

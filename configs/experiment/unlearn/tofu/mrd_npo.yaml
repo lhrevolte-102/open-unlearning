@@ -1,0 +1,12 @@
+# @package _global_
+
+defaults:
+  - /experiment/unlearn/tofu/default
+  - override /trainer: NPO
+
+trainer:
+  train_sampler: weighted
+  train_sampler_args:
+    weights_path: null
+    replacement: true
+    num_samples: null
