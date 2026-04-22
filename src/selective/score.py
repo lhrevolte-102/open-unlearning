@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import torch
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 from utils.loss import compute_dpo_loss
 
@@ -10,13 +11,15 @@ def _strip_index(batch):
     return {key: value for key, value in batch.items() if key != "index"}
 
 
-def _move_batch_to_device(batch, device):
+def _move_batch_to_device(batch, device, non_blocking=False):
     moved = {}
     for key, value in batch.items():
         if isinstance(value, dict):
-            moved[key] = _move_batch_to_device(value, device)
+            moved[key] = _move_batch_to_device(
+                value, device, non_blocking=non_blocking
+            )
         elif isinstance(value, torch.Tensor):
-            moved[key] = value.to(device)
+            moved[key] = value.to(device, non_blocking=non_blocking)
         else:
             moved[key] = value
     return moved
@@ -59,11 +62,14 @@ def compute_unlearning_forget_losses(model, ref_model, batch, method, beta):
     method = _normalize_method(method)
     _ensure_batch_matches_method(batch, method)
     device = next(model.parameters()).device
+    non_blocking = device.type == "cuda"
 
     if method == "npo":
         indices = batch["index"].detach().cpu().tolist()
-        lose_inputs = _move_batch_to_device(_strip_index(batch), device)
-        with torch.no_grad():
+        lose_inputs = _move_batch_to_device(
+            _strip_index(batch), device, non_blocking=non_blocking
+        )
+        with torch.inference_mode():
             losses, _ = compute_dpo_loss(
                 model=model,
                 ref_model=ref_model,
@@ -76,9 +82,13 @@ def compute_unlearning_forget_losses(model, ref_model, batch, method, beta):
         original_batch = batch["original"]
         alternate_batch = batch["alternate"]
         indices = original_batch["index"].detach().cpu().tolist()
-        win_inputs = _move_batch_to_device(_strip_index(alternate_batch), device)
-        lose_inputs = _move_batch_to_device(_strip_index(original_batch), device)
-        with torch.no_grad():
+        win_inputs = _move_batch_to_device(
+            _strip_index(alternate_batch), device, non_blocking=non_blocking
+        )
+        lose_inputs = _move_batch_to_device(
+            _strip_index(original_batch), device, non_blocking=non_blocking
+        )
+        with torch.inference_mode():
             losses, _ = compute_dpo_loss(
                 model=model,
                 ref_model=ref_model,
@@ -99,13 +109,34 @@ def score_dataset_with_reference(
     method,
     beta,
     batch_size,
+    num_workers=0,
+    pin_memory=None,
+    show_progress=False,
+    progress_desc="Selective scoring",
 ):
-    dataloader = DataLoader(dataset, batch_size=batch_size, collate_fn=collator)
+    device = next(model.parameters()).device
+    if pin_memory is None:
+        pin_memory = device.type == "cuda"
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        collate_fn=collator,
+        num_workers=int(num_workers),
+        pin_memory=bool(pin_memory),
+    )
     scores_by_index = defaultdict(list)
 
     model.eval()
     ref_model.eval()
-    for batch in dataloader:
+    iterator = tqdm(
+        dataloader,
+        total=len(dataloader),
+        desc=progress_desc,
+        leave=False,
+        disable=not show_progress,
+    )
+    for batch in iterator:
         indices, losses = compute_unlearning_forget_losses(
             model=model,
             ref_model=ref_model,

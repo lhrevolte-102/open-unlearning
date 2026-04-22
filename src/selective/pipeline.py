@@ -3,6 +3,7 @@ import warnings
 
 import torch
 from omegaconf import DictConfig, OmegaConf, open_dict
+from tqdm.auto import tqdm
 
 from data import get_collators, get_datasets
 from selective.score import build_difficulty_payload, score_dataset_with_reference
@@ -18,19 +19,33 @@ from selective.utils import (
 )
 
 
+def _build_runtime_model_cfg(model_cfg, model_path=None):
+    runtime_cfg = OmegaConf.create(OmegaConf.to_container(model_cfg, resolve=False))
+    runtime_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    with open_dict(runtime_cfg.model_args):
+        if model_path is not None:
+            runtime_cfg.model_args.pretrained_model_name_or_path = model_path
+        if runtime_device.type == "cuda":
+            runtime_cfg.model_args.setdefault("low_cpu_mem_usage", True)
+            runtime_cfg.model_args.setdefault("device_map", "auto")
+        elif runtime_cfg.model_args.get("attn_implementation") == "flash_attention_2":
+            runtime_cfg.model_args.attn_implementation = "eager"
+
+    return runtime_cfg
+
+
 def _load_model_from_path(model_cfg, model_path):
     from model import get_model
 
-    runtime_cfg = OmegaConf.create(OmegaConf.to_container(model_cfg, resolve=False))
-    with open_dict(runtime_cfg.model_args):
-        runtime_cfg.model_args.pretrained_model_name_or_path = model_path
+    runtime_cfg = _build_runtime_model_cfg(model_cfg, model_path=model_path)
     model, _ = get_model(runtime_cfg)
     return model
 
 
 def _prepare_model_for_scoring(model):
     runtime_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if hasattr(model, "to"):
+    if runtime_device.type != "cuda" and hasattr(model, "to"):
         model = model.to(runtime_device)
     if hasattr(model, "eval"):
         model.eval()
@@ -111,7 +126,14 @@ def prepare_difficulty_payload(cfg: DictConfig, dataset, collator, target_model)
 
     score_records = {}
     scored_reference_specs = []
-    for reference_spec in reference_specs:
+    reference_iterator = tqdm(
+        reference_specs,
+        total=len(reference_specs),
+        desc="Selective references",
+        leave=False,
+        disable=not cfg.prepare.show_progress,
+    )
+    for reference_spec in reference_iterator:
         heldout_manifest = load_json(reference_spec["heldout_manifest_path"])
         heldout_indices = get_allowed_indices_from_manifest(heldout_manifest)
         if not heldout_indices:
@@ -129,6 +151,10 @@ def prepare_difficulty_payload(cfg: DictConfig, dataset, collator, target_model)
             method=cfg.method,
             beta=cfg.beta,
             batch_size=cfg.batch_size,
+            num_workers=cfg.prepare.num_workers,
+            pin_memory=cfg.prepare.pin_memory,
+            show_progress=cfg.prepare.show_progress,
+            progress_desc=f"Ref {reference_spec['split_name']}",
         )
         for idx, scores in fold_scores.items():
             score_records.setdefault(idx, []).extend(scores)
@@ -191,9 +217,7 @@ def build_difficulty_artifacts(cfg: DictConfig):
     dataset = _require_single_dataset(dataset, "selective_prepare")
     collator = get_collators(cfg.collator, tokenizer=tokenizer)
 
-    target_model, _ = get_model(
-        OmegaConf.create(OmegaConf.to_container(cfg.model, resolve=False))
-    )
+    target_model, _ = get_model(_build_runtime_model_cfg(cfg.model))
     target_model = _prepare_model_for_scoring(target_model)
 
     difficulty_payload = prepare_difficulty_payload(

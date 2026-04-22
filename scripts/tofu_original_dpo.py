@@ -391,6 +391,7 @@ def run_multi_stage_full_data(cfg: RunConfig, task_prefix: str, stage_epoch_rati
         if cfg.resume and training_output_complete(output_dir):
             log(f"Skipping {METHOD.label} {stage_name}; found completed model output at {output_dir}.")
             prev_output_dir = output_dir
+            run_eval(cfg, task_name)
             continue
         extra_args: list[str] = []
         pretrained_model_path = cfg.base_model_path
@@ -414,6 +415,7 @@ def run_multi_stage_full_data(cfg: RunConfig, task_prefix: str, stage_epoch_rati
             extra_args=extra_args,
         )
         prev_output_dir = output_dir
+        run_eval(cfg, task_name)
     if not final_task_name:
         raise SystemExit(f"No stages were executed for {METHOD.label}.")
     return final_task_name
@@ -432,6 +434,7 @@ def run_multi_stage_subset(cfg: RunConfig, task_prefix: str, stage_manifests: li
         if cfg.resume and training_output_complete(output_dir):
             log(f"Skipping {METHOD.label} {stage_name}; found completed model output at {output_dir}.")
             prev_output_dir = output_dir
+            run_eval(cfg, task_name)
             continue
         extra_args: list[str] = [
             f"data.forget.{METHOD.forget_dataset_name}.args.allowed_indices_path={stage_manifest}"
@@ -457,6 +460,7 @@ def run_multi_stage_subset(cfg: RunConfig, task_prefix: str, stage_manifests: li
             extra_args=extra_args,
         )
         prev_output_dir = output_dir
+        run_eval(cfg, task_name)
     if not final_task_name:
         raise SystemExit(f"No stages were executed for {METHOD.label}.")
     return final_task_name
@@ -515,7 +519,8 @@ def main() -> None:
         else:
             log(f"Staged original training enabled with STAGE_EPOCH_RATIOS={plan.epoch_ratios}{suffix}.")
     final_task_name = run_unlearn(cfg, plan)
-    run_eval(cfg, final_task_name)
+    if not plan.staged:
+        run_eval(cfg, final_task_name)
     log(f"{METHOD.label} output: saves/unlearn/{final_task_name}")
 
 

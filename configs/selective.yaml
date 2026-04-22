@@ -30,6 +30,9 @@ reference:
 prepare:
   reference_manifest_path: ${reference.reference_manifest_output_path}
   score_output_path: ${paths.output_dir}/prepare/difficulty.json
+  num_workers: 0
+  pin_memory: null
+  show_progress: true
 
 stage:
   difficulty_path: ${prepare.score_output_path}

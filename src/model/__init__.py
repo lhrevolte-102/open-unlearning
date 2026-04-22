@@ -38,12 +38,28 @@ def get_dtype(model_args):
     return torch.float32
 
 
+def _apply_runtime_loading_defaults(model_args) -> None:
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if (
+        torch.cuda.is_available()
+        and world_size == 1
+        and model_args.get("attn_implementation", None) == "flash_attention_2"
+        and model_args.get("device_map", None) is None
+    ):
+        # Initialize directly on the visible GPU so Flash Attention does not warn
+        # about a CPU-initialized model that is moved later by Trainer/Accelerate.
+        with open_dict(model_args):
+            model_args.device_map = "cuda"
+            model_args.setdefault("low_cpu_mem_usage", True)
+
+
 def get_model(model_cfg: DictConfig):
     assert model_cfg is not None and model_cfg.model_args is not None, ValueError(
         "Model config not found or model_args absent in configs/model."
     )
     model_args = model_cfg.model_args
     tokenizer_args = model_cfg.tokenizer_args
+    _apply_runtime_loading_defaults(model_args)
     torch_dtype = get_dtype(model_args)
     model_handler = model_cfg.get("model_handler", "AutoModelForCausalLM")
     model_cls = MODEL_REGISTRY[model_handler]

@@ -416,7 +416,7 @@ def run_stage_training(cfg: RunConfig, stage_manifests: list[Path]) -> None:
         manifest = load_json(stage_manifest)
         stage_name = manifest["stage_name"]
         stage_epochs = str(max(float(manifest["epoch_ratio"]) * cfg.total_epochs, 1.0))
-        stage_task_name = f"{cfg.stage_task_prefix}_{stage_name}"
+        stage_task_name = f"{cfg.stage_run_prefix}_{stage_name}"
         stage_output_dir = UNLEARN_ROOT / stage_task_name
 
         if cfg.resume and training_output_complete(stage_output_dir):
