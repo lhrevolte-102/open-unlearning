@@ -3,18 +3,23 @@ defaults:
   - collator: DataCollatorForSupervisedDatasetwithIndex
   - hydra: default
   - paths: default
-  - experiment: null
   - _self_
+  - experiment: null
 
 seed: 0
 mode: mrd
 task_name: mrd
+trainer:
+  handler: mrd
 data: null
 
 mrd:
   sigma: 1e-5
   num_mc_samples: 8
   batch_size: 4
+  num_workers: 0
+  pin_memory: null
+  show_progress: true
   eps: 1e-6
   refresh_epochs: 1
   output_path: ${paths.output_dir}/difficulty.json

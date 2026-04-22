@@ -5,10 +5,10 @@ import os
 from typing import Any, Dict, List, Optional, Union
 
 import torch
-from mrd_utils import load_weights_by_index
 from torch.utils.data import Dataset, SequentialSampler, WeightedRandomSampler
 from transformers import Trainer
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, has_length
+from utils.mrd import load_weights_by_index
 
 logger = logging.getLogger(__name__)
 

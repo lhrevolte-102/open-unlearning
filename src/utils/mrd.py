@@ -6,6 +6,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 
 def save_json(path, payload):
@@ -43,29 +44,38 @@ def _strip_index(batch: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in batch.items() if key != "index"}
 
 
-def move_batch_to_device(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
+def move_batch_to_device(
+    batch: dict[str, Any], device: torch.device, non_blocking: bool = False
+) -> dict[str, Any]:
     moved = {}
     for key, value in batch.items():
         if isinstance(value, dict):
-            moved[key] = move_batch_to_device(value, device)
+            moved[key] = move_batch_to_device(
+                value, device, non_blocking=non_blocking
+            )
         elif isinstance(value, torch.Tensor):
-            moved[key] = value.to(device)
+            moved[key] = value.to(device, non_blocking=non_blocking)
         else:
             moved[key] = value
     return moved
 
 
-def get_answer_log_probs(
-    logits: torch.Tensor, labels: torch.Tensor
+def get_sequence_log_probs(
+    logits: torch.Tensor,
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     shift_logits = logits[..., :-1, :].contiguous()
-    shift_labels = labels[..., 1:].contiguous()
-    valid_mask = shift_labels != -100
+    shift_input_ids = input_ids[..., 1:].contiguous()
+    if attention_mask is None:
+        valid_mask = torch.ones_like(shift_input_ids, dtype=torch.bool)
+    else:
+        valid_mask = attention_mask[..., 1:].contiguous().bool()
 
-    safe_labels = shift_labels.masked_fill(~valid_mask, 0)
+    safe_input_ids = shift_input_ids.masked_fill(~valid_mask, 0)
     token_log_probs = F.log_softmax(shift_logits, dim=-1)
     token_log_probs = token_log_probs.gather(
-        dim=-1, index=safe_labels.unsqueeze(-1)
+        dim=-1, index=safe_input_ids.unsqueeze(-1)
     ).squeeze(-1)
     token_log_probs = token_log_probs.masked_fill(~valid_mask, 0.0)
     return token_log_probs, valid_mask
@@ -85,17 +95,22 @@ def compute_mrd_loss(
 
 
 def perturb_model_parameters(
-    model: torch.nn.Module, sigma: float, generator: torch.Generator
+    model: torch.nn.Module, sigma: float, generator_seed: int
 ) -> list[tuple[torch.nn.Parameter, torch.Tensor]]:
     perturbations = []
-    with torch.no_grad():
+    first_param = next(model.parameters())
+    generator = torch.Generator(device=first_param.device)
+    generator.manual_seed(int(generator_seed))
+
+    with torch.inference_mode():
         for param in model.parameters():
             if not param.requires_grad:
                 continue
-            noise = torch.randn(
-                param.shape, generator=generator, device="cpu", dtype=torch.float32
-            ).to(device=param.device, dtype=param.dtype)
-            noise.mul_(float(sigma))
+            noise = torch.empty_like(param).normal_(
+                mean=0.0,
+                std=float(sigma),
+                generator=generator,
+            )
             param.add_(noise)
             perturbations.append((param, noise))
     return perturbations
@@ -104,7 +119,7 @@ def perturb_model_parameters(
 def revert_model_perturbations(
     perturbations: list[tuple[torch.nn.Parameter, torch.Tensor]]
 ) -> None:
-    with torch.no_grad():
+    with torch.inference_mode():
         for param, noise in perturbations:
             param.sub_(noise)
 
@@ -115,7 +130,7 @@ def score_mrd_for_batch(
     sigma: float,
     num_mc_samples: int,
     eps: float,
-    generator: torch.Generator,
+    seed: int,
 ) -> tuple[list[int], list[float]]:
     if "index" not in batch:
         raise KeyError(
@@ -123,14 +138,20 @@ def score_mrd_for_batch(
         )
 
     device = next(model.parameters()).device
-    batch = move_batch_to_device(batch, device)
+    batch = move_batch_to_device(
+        batch,
+        device,
+        non_blocking=device.type == "cuda",
+    )
     indices = [int(idx) for idx in batch["index"].detach().cpu().tolist()]
     model_inputs = _strip_index(batch)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         base_outputs = model(**model_inputs)
-    base_log_probs, valid_mask = get_answer_log_probs(
-        base_outputs.logits, model_inputs["labels"]
+    base_log_probs, valid_mask = get_sequence_log_probs(
+        base_outputs.logits,
+        model_inputs["input_ids"],
+        model_inputs.get("attention_mask"),
     )
 
     accumulated_scores = torch.zeros(
@@ -138,15 +159,15 @@ def score_mrd_for_batch(
         device=base_log_probs.device,
         dtype=base_log_probs.dtype,
     )
-    for _ in range(int(num_mc_samples)):
-        perturbations = perturb_model_parameters(
-            model, sigma=sigma, generator=generator
-        )
+    for mc_idx in range(int(num_mc_samples)):
+        perturbations = perturb_model_parameters(model, sigma=sigma, generator_seed=seed + mc_idx)
         try:
-            with torch.no_grad():
+            with torch.inference_mode():
                 perturbed_outputs = model(**model_inputs)
-            perturbed_log_probs, _ = get_answer_log_probs(
-                perturbed_outputs.logits, model_inputs["labels"]
+            perturbed_log_probs, _ = get_sequence_log_probs(
+                perturbed_outputs.logits,
+                model_inputs["input_ids"],
+                model_inputs.get("attention_mask"),
             )
         finally:
             revert_model_perturbations(perturbations)
@@ -171,21 +192,40 @@ def score_dataset_with_mrd(
     num_mc_samples: int,
     eps: float,
     seed: int = 0,
+    num_workers: int = 0,
+    pin_memory: bool | None = None,
+    show_progress: bool = False,
 ) -> dict[int, float]:
-    dataloader = DataLoader(dataset, batch_size=batch_size, collate_fn=collator)
-    generator = torch.Generator(device="cpu")
-    generator.manual_seed(int(seed))
+    device = next(model.parameters()).device
+    if pin_memory is None:
+        pin_memory = device.type == "cuda"
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        collate_fn=collator,
+        num_workers=int(num_workers),
+        pin_memory=bool(pin_memory),
+    )
+    device = next(model.parameters()).device
     scores_by_index = {}
 
     model.eval()
-    for batch in dataloader:
+    iterator = tqdm(
+        dataloader,
+        total=len(dataloader),
+        desc="MRD scoring",
+        leave=False,
+        disable=not show_progress,
+    )
+    for batch in iterator:
         indices, scores = score_mrd_for_batch(
             model=model,
             batch=batch,
             sigma=sigma,
             num_mc_samples=num_mc_samples,
             eps=eps,
-            generator=generator,
+            seed=int(seed),
         )
         for idx, score in zip(indices, scores):
             scores_by_index[int(idx)] = float(score)

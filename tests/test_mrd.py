@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from data.unlearn import ForgetRetainDataset
-from mrd_utils import build_mrd_payload, score_dataset_with_mrd
 from trainer.base import FinetuneTrainer
+from utils.mrd import build_mrd_payload, score_dataset_with_mrd
 
 
 class _ToyDataset(torch.utils.data.Dataset):
