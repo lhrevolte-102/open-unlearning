@@ -35,6 +35,7 @@ ENV_DEFAULTS = {
     "FORGET_SPLIT": "forget10",
     "RETAIN_SPLIT": "retain90",
     "TOTAL_EPOCHS": "5",
+    "STAGE_SUBSET_MODE": "cumulative",
     "STAGE_PERCENTILES": "[0.3,0.6,1.0]",
     "STAGE_EPOCH_RATIOS": "[0.2,0.4,0.4]",
     "INTRA_STAGE_ORDER": "random",
@@ -137,6 +138,7 @@ class RunConfig:
     retain_split: str
     total_epochs_token: str
     total_epochs: float
+    stage_subset_mode: str
     stage_percentiles: str
     stage_epoch_ratios: str
     intra_stage_order: str
@@ -163,20 +165,34 @@ class RunConfig:
         return f"saves/eval/tofu_{self.model}_{self.retain_split}/TOFU_EVAL.json"
 
     @property
-    def task_config_suffix(self) -> str:
+    def shared_task_config_suffix(self) -> str:
         return (
             f"{METHOD.task_label}_lr{self.learning_rate}_beta{self.beta}_alpha{self.alpha}_"
-            f"epoch{self.total_epochs_token}_{format_number_list_suffix(self.stage_percentiles, 'pct')}_"
+            f"epoch{self.total_epochs_token}_"
+            f"{format_number_list_suffix(self.stage_percentiles, 'pct')}_"
+            f"{format_number_list_suffix(self.stage_epoch_ratios, 'ratio')}"
+        )
+
+    @property
+    def stage_task_config_suffix(self) -> str:
+        return (
+            f"{METHOD.task_label}_lr{self.learning_rate}_beta{self.beta}_alpha{self.alpha}_"
+            f"epoch{self.total_epochs_token}_{self.stage_subset_mode}_"
+            f"{format_number_list_suffix(self.stage_percentiles, 'pct')}_"
             f"{format_number_list_suffix(self.stage_epoch_ratios, 'ratio')}"
         )
 
     @property
     def task_prefix(self) -> str:
-        return f"tofu_{self.model}_{self.forget_split}_{self.task_config_suffix}"
+        return f"tofu_{self.model}_{self.forget_split}_{self.shared_task_config_suffix}"
+
+    @property
+    def stage_task_base_prefix(self) -> str:
+        return f"tofu_{self.model}_{self.forget_split}_{self.stage_task_config_suffix}"
 
     @property
     def reference_task_prefix(self) -> str:
-        return f"tofu_{self.model}_{self.forget_split}_references_{self.task_config_suffix}"
+        return f"tofu_{self.model}_{self.forget_split}_references_{self.shared_task_config_suffix}"
 
     @property
     def reference_task_name(self) -> str:
@@ -212,7 +228,7 @@ class RunConfig:
 
     @property
     def stage_task_prefix(self) -> str:
-        return f"{self.task_prefix}_{self.intra_stage_order}"
+        return f"{self.stage_task_base_prefix}_{self.intra_stage_order}"
 
     @property
     def stage_task_name(self) -> str:
@@ -231,6 +247,7 @@ def load_config() -> RunConfig:
         retain_split=env_value("RETAIN_SPLIT"),
         total_epochs_token=total_epochs_token,
         total_epochs=float(total_epochs_token),
+        stage_subset_mode=env_value("STAGE_SUBSET_MODE"),
         stage_percentiles=env_value("STAGE_PERCENTILES"),
         stage_epoch_ratios=env_value("STAGE_EPOCH_RATIOS"),
         intra_stage_order=env_value("INTRA_STAGE_ORDER"),
@@ -357,6 +374,7 @@ def run_stage_manifest_build(cfg: RunConfig) -> list[Path]:
             f"stage.difficulty_path={cfg.difficulty_path}",
             f"stage.output_dir={cfg.stage_dir}",
             f"stage.intra_stage_order={cfg.intra_stage_order}",
+            f"stage.stage_subset_mode={cfg.stage_subset_mode}",
             f"stage.stage_percentiles={cfg.stage_percentiles}",
             f"stage.stage_epoch_ratios={cfg.stage_epoch_ratios}",
         ]

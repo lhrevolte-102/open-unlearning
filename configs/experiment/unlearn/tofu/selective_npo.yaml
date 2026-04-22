@@ -6,6 +6,7 @@ defaults:
 
 selective_manifest_path: null
 intra_stage_order: random
+stage_subset_mode: cumulative
 stage_percentiles: [0.3, 0.6, 1.0]
 stage_epoch_ratios: [0.3, 0.3, 0.4]
 

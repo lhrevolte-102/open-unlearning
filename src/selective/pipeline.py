@@ -212,11 +212,13 @@ def build_stage_artifacts(cfg: DictConfig):
         difficulty_payload=difficulty_payload,
         stage_percentiles=list(cfg.stage_percentiles),
         stage_epoch_ratios=list(cfg.stage_epoch_ratios),
+        stage_subset_mode=cfg.stage_subset_mode,
     )
 
     summary = {
         "difficulty_path": cfg.difficulty_path,
         "intra_stage_order": cfg.intra_stage_order,
+        "stage_subset_mode": cfg.stage_subset_mode,
         "stage_percentiles": list(cfg.stage_percentiles),
         "stage_epoch_ratios": list(cfg.stage_epoch_ratios),
         "stages": [],
@@ -234,6 +236,7 @@ def build_stage_artifacts(cfg: DictConfig):
                 "percentile": manifest["percentile"],
                 "epoch_ratio": manifest["epoch_ratio"],
                 "intra_stage_order": cfg.intra_stage_order,
+                "stage_subset_mode": cfg.stage_subset_mode,
             }
         )
 

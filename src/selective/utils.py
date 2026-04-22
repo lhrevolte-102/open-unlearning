@@ -213,10 +213,27 @@ def order_indices_by_difficulty(all_indices, scores_by_index):
     return scored_indices + missing_indices
 
 
-def build_stage_manifests(
-    difficulty_payload,
+def _resolve_disjoint_stage_end(
+    total_examples,
+    previous_end,
+    cumulative_fraction,
+    stage_id,
+    num_stages,
+):
+    if stage_id == num_stages:
+        return total_examples
+
+    remaining_stages = num_stages - stage_id
+    max_end = total_examples - remaining_stages
+    target_end = max(1, math.ceil(total_examples * cumulative_fraction))
+    return min(max_end, max(previous_end + 1, target_end))
+
+
+def build_stage_manifests_from_ordered_indices(
+    ordered_indices,
     stage_percentiles,
     stage_epoch_ratios=None,
+    stage_subset_mode="cumulative",
 ):
     if not stage_percentiles:
         raise ValueError("stage_percentiles must contain at least one value")
@@ -227,33 +244,101 @@ def build_stage_manifests(
     if len(stage_percentiles) != len(stage_epoch_ratios):
         raise ValueError("stage_percentiles and stage_epoch_ratios must have same length")
 
-    all_indices = difficulty_payload["metadata"]["all_indices"]
-    scores_by_index = difficulty_payload["scores_by_index"]
-    ordered_indices = order_indices_by_difficulty(all_indices, scores_by_index)
-    total_examples = len(ordered_indices)
+    if stage_subset_mode not in {"cumulative", "disjoint"}:
+        raise ValueError(
+            "stage_subset_mode must be 'cumulative' or 'disjoint', "
+            f"got {stage_subset_mode!r}"
+        )
 
+    total_examples = len(ordered_indices)
     manifests = []
-    for stage_id, (percentile, epoch_ratio) in enumerate(
+
+    if stage_subset_mode == "cumulative":
+        previous_percentile = 0.0
+        for stage_id, (percentile, epoch_ratio) in enumerate(
+            zip(stage_percentiles, stage_epoch_ratios), start=1
+        ):
+            if percentile <= 0 or percentile > 1:
+                raise ValueError(
+                    f"stage percentile must be in (0, 1], got {percentile} at stage {stage_id}"
+                )
+            if percentile < previous_percentile:
+                raise ValueError(
+                    "cumulative stage_percentiles must be non-decreasing, "
+                    f"got {percentile} after {previous_percentile} at stage {stage_id}"
+                )
+
+            subset_size = total_examples
+            if percentile < 1:
+                subset_size = max(1, math.ceil(total_examples * percentile))
+
+            manifests.append(
+                {
+                    "stage_id": stage_id,
+                    "stage_name": f"stage{stage_id}",
+                    "percentile": float(percentile),
+                    "epoch_ratio": float(epoch_ratio),
+                    "subset_mode": stage_subset_mode,
+                    "allowed_indices": ordered_indices[:subset_size],
+                    "num_examples": subset_size,
+                    "total_examples": total_examples,
+                }
+            )
+            previous_percentile = float(percentile)
+        return manifests
+
+    cumulative_fraction = 0.0
+    previous_end = 0
+    if not math.isclose(sum(float(value) for value in stage_percentiles), 1.0, abs_tol=1e-6):
+        raise ValueError("disjoint stage_percentiles must sum to 1.0")
+
+    for stage_id, (share, epoch_ratio) in enumerate(
         zip(stage_percentiles, stage_epoch_ratios), start=1
     ):
-        if percentile <= 0 or percentile > 1:
+        if share <= 0 or share > 1:
             raise ValueError(
-                f"stage percentile must be in (0, 1], got {percentile} at stage {stage_id}"
+                f"stage percentile must be in (0, 1], got {share} at stage {stage_id}"
             )
 
-        subset_size = total_examples
-        if percentile < 1:
-            subset_size = max(1, math.ceil(total_examples * percentile))
+        cumulative_fraction += float(share)
+        current_end = _resolve_disjoint_stage_end(
+            total_examples=total_examples,
+            previous_end=previous_end,
+            cumulative_fraction=cumulative_fraction,
+            stage_id=stage_id,
+            num_stages=len(stage_percentiles),
+        )
+        allowed_indices = ordered_indices[previous_end:current_end]
 
         manifests.append(
             {
                 "stage_id": stage_id,
                 "stage_name": f"stage{stage_id}",
-                "percentile": float(percentile),
+                "percentile": float(share),
                 "epoch_ratio": float(epoch_ratio),
-                "allowed_indices": ordered_indices[:subset_size],
-                "num_examples": subset_size,
+                "subset_mode": stage_subset_mode,
+                "allowed_indices": allowed_indices,
+                "num_examples": len(allowed_indices),
                 "total_examples": total_examples,
             }
         )
+        previous_end = current_end
+
     return manifests
+
+
+def build_stage_manifests(
+    difficulty_payload,
+    stage_percentiles,
+    stage_epoch_ratios=None,
+    stage_subset_mode="cumulative",
+):
+    all_indices = difficulty_payload["metadata"]["all_indices"]
+    scores_by_index = difficulty_payload["scores_by_index"]
+    ordered_indices = order_indices_by_difficulty(all_indices, scores_by_index)
+    return build_stage_manifests_from_ordered_indices(
+        ordered_indices=ordered_indices,
+        stage_percentiles=stage_percentiles,
+        stage_epoch_ratios=stage_epoch_ratios,
+        stage_subset_mode=stage_subset_mode,
+    )
