@@ -9,8 +9,8 @@
 
 The scripts below execute standard baseline unlearning experiments on the TOFU and MUSE datasets, evaluated using their corresponding benchmarks. 
 ```bash
-bash scripts/tofu_unlearn.sh
-bash scripts/muse_unlearn.sh
+bash scripts/baselines/tofu_unlearn.sh
+bash scripts/baselines/muse_unlearn.sh
 ```
 
 ## Results

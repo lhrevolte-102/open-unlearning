@@ -13,16 +13,6 @@ VENV_PYTHON = ROOT_DIR / ".venv" / "bin" / "python"
 MRD_ROOT = ROOT_DIR / "saves" / "mrd"
 UNLEARN_ROOT = ROOT_DIR / "saves" / "unlearn"
 
-REQUIRED_EVAL_METRICS = {
-    "exact_memorization",
-    "mia_gradnorm",
-    "mia_loss",
-    "mia_min_k",
-    "mia_min_k_plus_plus",
-    "mia_reference",
-    "mia_zlib",
-}
-
 ENV_DEFAULTS = {
     "MODEL": "Llama-3.2-3B-Instruct",
     "FORGET_SPLIT": "forget10",
@@ -87,12 +77,6 @@ def latest_checkpoint_in_dir(output_dir: Path) -> Path | None:
     return checkpoints[-1] if checkpoints else None
 
 
-def tofu_eval_has_full_metrics(eval_file: Path) -> bool:
-    if not eval_file.is_file():
-        return False
-    return REQUIRED_EVAL_METRICS.issubset(load_json(eval_file))
-
-
 def log(message: str) -> None:
     print(f"[MRD-NPO] {message}", flush=True)
 
@@ -141,7 +125,7 @@ class RunConfig:
     @property
     def run_config_suffix(self) -> str:
         return (
-            f"mrd_npo_lr{self.learning_rate}_beta{self.beta}_alpha{self.alpha}_"
+            f"MRD-NPO_lr{self.learning_rate}_alpha{self.alpha}_beta{self.beta}_"
             f"epoch{self.total_epochs_token}_refresh{self.refresh_epochs_token}"
         )
 
@@ -286,30 +270,6 @@ def run_training_round(
     )
 
 
-def run_final_eval(cfg: RunConfig, final_model_dir: Path, final_task_name: str) -> None:
-    eval_dir = final_model_dir / "evals"
-    eval_file = eval_dir / "TOFU_EVAL.json"
-    if cfg.resume and tofu_eval_has_full_metrics(eval_file):
-        log(f"Skipping final eval; found existing full-metric eval logs at {eval_file}.")
-        return
-
-    run_repo_python(
-        [
-            "src/eval.py",
-            "experiment=eval/tofu/full",
-            f"forget_split={cfg.forget_split}",
-            f"model={cfg.model}",
-            f"task_name={final_task_name}",
-            f"model.model_args.pretrained_model_name_or_path={final_model_dir}",
-            f"model.tokenizer_args.pretrained_model_name_or_path={cfg.base_model_path}",
-            f"paths.output_dir={eval_dir}",
-            f"retain_logs_path={cfg.retain_logs_path}",
-            f"reference_model_path={cfg.retain_model_path}",
-        ],
-        extra_env={"CUDA_VISIBLE_DEVICES": cfg.gpu_id},
-    )
-
-
 def main() -> None:
     cfg = load_config()
     if cfg.refresh_epochs <= 0:
@@ -352,8 +312,7 @@ def main() -> None:
     if final_output_dir is None:
         raise SystemExit("MRD-NPO did not produce any training output.")
 
-    run_final_eval(cfg, final_output_dir, cfg.round_task_name(cfg.num_rounds - 1))
-    log(f"MRD-NPO completed. Final model output: {final_output_dir}")
+    log(f"MRD-NPO training completed. Final model output: {final_output_dir}")
 
 
 if __name__ == "__main__":

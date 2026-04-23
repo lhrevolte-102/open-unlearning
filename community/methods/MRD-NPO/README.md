@@ -33,8 +33,8 @@ Run [`run.py`](./run.py).
 - Round checkpoints are written under `saves/unlearn/${task_name}`.
 - Final TOFU evaluation is written under the last round directory's `evals/`.
 - Naming follows the same pattern as `Selective-DPO` / `Selective-NPO`: a stable base `task_prefix` plus a role suffix. The `task_prefix` encodes the main run-affecting hyperparameters: `lr`, `beta`, `alpha`, `epoch`, and `refresh`.
-- Example training task name: `tofu_${MODEL}_${FORGET_SPLIT}_mrd_npo_lr1e-5_beta0.1_alpha1_epoch5_refresh1_round01`.
-- Example MRD task name: `tofu_${MODEL}_${FORGET_SPLIT}_mrd_npo_lr1e-5_beta0.1_alpha1_epoch5_refresh1_mrd_round01`.
+- Example training task name: `tofu_${MODEL}_${FORGET_SPLIT}_MRD-NPO_lr1e-5_alpha1_beta0.1_epoch5_refresh1_round01`.
+- Example MRD task name: `tofu_${MODEL}_${FORGET_SPLIT}_MRD-NPO_lr1e-5_alpha1_beta0.1_epoch5_refresh1_mrd_round01`.
 
 # Citation
 

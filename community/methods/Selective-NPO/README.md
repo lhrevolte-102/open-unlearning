@@ -10,7 +10,6 @@
 - Hyperparameters:
   - TOFU `forget10` / `retain90`
   - `beta=0.1`
-  - `stage_subset_mode=cumulative`
   - `stage_percentiles=[0.3, 0.6, 1.0]`
   - `stage_epoch_ratios=[0.3, 0.3, 0.4]`
   - stage unlearning logs to TensorBoard every optimizer step by default via `STAGE_LOGGING_STEPS=1`
@@ -32,9 +31,8 @@
 
 Run [`run.py`](./run.py). The script supports a single intra-stage ordering mode at a time and defaults to `INTRA_STAGE_ORDER=random`. Set `INTRA_STAGE_ORDER=strict` to run the strict intra-stage ordering control.
 
-- Stage subset modes:
-  - `STAGE_SUBSET_MODE=cumulative` interprets `STAGE_PERCENTILES` as cumulative difficulty thresholds, e.g. `[0.3, 0.6, 1.0]`.
-  - `STAGE_SUBSET_MODE=disjoint` interprets `STAGE_PERCENTILES` as mutually exclusive stage shares that must sum to `1.0`, e.g. `[0.3, 0.3, 0.4]`.
+- Stage subsets:
+  - `STAGE_PERCENTILES` are interpreted as cumulative difficulty thresholds, e.g. `[0.3, 0.6, 1.0]`.
 
 - Output layout:
   - Reference artifacts live under `saves/selective/reference/${REFERENCE_TASK_NAME}`.

@@ -175,8 +175,8 @@ For more details about creating and running evaluations, refer [`docs/evaluation
 The scripts below execute standard baseline unlearning experiments on the TOFU and MUSE datasets, evaluated using their corresponding benchmarks. The expected results for these are in [`docs/repro.md`](docs/repro.md).
 
 ```bash
-bash scripts/tofu_unlearn.sh
-bash scripts/muse_unlearn.sh
+bash scripts/baselines/tofu_unlearn.sh
+bash scripts/baselines/muse_unlearn.sh
 ```
 
 The above scripts are not tuned and uses default hyper parameter settings. We encourage you to tune your methods and add your final results in [`community/leaderboard.md`](community/leaderboard.md).

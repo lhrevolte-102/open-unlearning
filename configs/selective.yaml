@@ -38,6 +38,5 @@ stage:
   difficulty_path: ${prepare.score_output_path}
   output_dir: ${paths.output_dir}/stage/stages
   intra_stage_order: random
-  stage_subset_mode: cumulative
   stage_percentiles: [0.3, 0.6, 1.0]
-  stage_epoch_ratios: [0.3, 0.3, 0.4]
+  stage_epoch_ratios: [0.2, 0.4, 0.4]

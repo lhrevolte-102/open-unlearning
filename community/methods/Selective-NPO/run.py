@@ -35,7 +35,6 @@ ENV_DEFAULTS = {
     "FORGET_SPLIT": "forget10",
     "RETAIN_SPLIT": "retain90",
     "TOTAL_EPOCHS": "5",
-    "STAGE_SUBSET_MODE": "cumulative",
     "STAGE_PERCENTILES": "[0.3,0.6,1.0]",
     "STAGE_EPOCH_RATIOS": "[0.2,0.4,0.4]",
     "INTRA_STAGE_ORDER": "random",
@@ -49,17 +48,6 @@ ENV_DEFAULTS = {
     "GPU_ID": "0",
     "RESUME": "true",
 }
-
-REQUIRED_EVAL_METRICS = {
-    "exact_memorization",
-    "mia_gradnorm",
-    "mia_loss",
-    "mia_min_k",
-    "mia_min_k_plus_plus",
-    "mia_reference",
-    "mia_zlib",
-}
-
 
 def env_value(name: str) -> str:
     return os.environ.get(name, ENV_DEFAULTS[name])
@@ -114,12 +102,6 @@ def selective_output_dir(category: str, task_name: str) -> Path:
     return SELECTIVE_ROOT / category / task_name
 
 
-def tofu_eval_has_full_metrics(eval_file: Path) -> bool:
-    if not eval_file.is_file():
-        return False
-    return REQUIRED_EVAL_METRICS.issubset(load_json(eval_file))
-
-
 def log(message: str) -> None:
     print(f"[{METHOD.label}] {message}", flush=True)
 
@@ -138,7 +120,6 @@ class RunConfig:
     retain_split: str
     total_epochs_token: str
     total_epochs: float
-    stage_subset_mode: str
     stage_percentiles: str
     stage_epoch_ratios: str
     intra_stage_order: str
@@ -167,14 +148,13 @@ class RunConfig:
     @property
     def reference_prepare_config_suffix(self) -> str:
         return (
-            f"{METHOD.task_label}_lr{self.learning_rate}_beta{self.beta}_alpha{self.alpha}_"
+            f"{METHOD.task_label}_lr{self.learning_rate}_alpha{self.alpha}_beta{self.beta}_"
             f"epoch{self.total_epochs_token}_refs{self.num_reference_repeats}"
         )
 
     @property
     def stage_manifest_config_suffix(self) -> str:
         return (
-            f"{self.stage_subset_mode}_"
             f"{format_number_list_suffix(self.stage_percentiles, 'pct')}_"
             f"{format_number_list_suffix(self.stage_epoch_ratios, 'ratio')}"
         )
@@ -244,7 +224,6 @@ def load_config() -> RunConfig:
         retain_split=env_value("RETAIN_SPLIT"),
         total_epochs_token=total_epochs_token,
         total_epochs=float(total_epochs_token),
-        stage_subset_mode=env_value("STAGE_SUBSET_MODE"),
         stage_percentiles=env_value("STAGE_PERCENTILES"),
         stage_epoch_ratios=env_value("STAGE_EPOCH_RATIOS"),
         intra_stage_order=env_value("INTRA_STAGE_ORDER"),
@@ -371,7 +350,6 @@ def run_stage_manifest_build(cfg: RunConfig) -> list[Path]:
             f"stage.difficulty_path={cfg.difficulty_path}",
             f"stage.output_dir={cfg.stage_dir}",
             f"stage.intra_stage_order={cfg.intra_stage_order}",
-            f"stage.stage_subset_mode={cfg.stage_subset_mode}",
             f"stage.stage_percentiles={cfg.stage_percentiles}",
             f"stage.stage_epoch_ratios={cfg.stage_epoch_ratios}",
         ]
@@ -381,32 +359,6 @@ def run_stage_manifest_build(cfg: RunConfig) -> list[Path]:
     if not stage_manifests:
         raise SystemExit(f"No stage manifests were found under {cfg.stage_dir}.")
     return stage_manifests
-
-
-def run_stage_eval(cfg: RunConfig, stage_task_name: str, stage_output_dir: Path, stage_name: str) -> None:
-    eval_dir = stage_output_dir / "evals"
-    eval_file = eval_dir / "TOFU_EVAL.json"
-    if cfg.resume and tofu_eval_has_full_metrics(eval_file):
-        log(
-            f"Skipping eval for {stage_name} ({cfg.intra_stage_order}); found existing full-metric eval logs at {eval_file}."
-        )
-        return
-
-    run_repo_python(
-        [
-            "src/eval.py",
-            "experiment=eval/tofu/full",
-            f"forget_split={cfg.forget_split}",
-            f"model={cfg.model}",
-            f"task_name={stage_task_name}",
-            f"model.model_args.pretrained_model_name_or_path={stage_output_dir}",
-            f"model.tokenizer_args.pretrained_model_name_or_path={cfg.base_model_path}",
-            f"paths.output_dir={eval_dir}",
-            f"retain_logs_path={cfg.retain_logs_path}",
-            f"reference_model_path={cfg.retain_model_path}",
-        ],
-        extra_env={"CUDA_VISIBLE_DEVICES": cfg.gpu_id},
-    )
 
 
 def run_stage_training(cfg: RunConfig, stage_manifests: list[Path]) -> None:
@@ -424,7 +376,6 @@ def run_stage_training(cfg: RunConfig, stage_manifests: list[Path]) -> None:
                 f"Skipping {stage_name} ({cfg.intra_stage_order}); found completed training output at {stage_output_dir}."
             )
             prev_output_dir = stage_output_dir
-            run_stage_eval(cfg, stage_task_name, stage_output_dir, stage_name)
             continue
 
         extra_args: list[str] = []
@@ -466,7 +417,6 @@ def run_stage_training(cfg: RunConfig, stage_manifests: list[Path]) -> None:
             extra_env={"CUDA_VISIBLE_DEVICES": cfg.gpu_id},
         )
         prev_output_dir = stage_output_dir
-        run_stage_eval(cfg, stage_task_name, stage_output_dir, stage_name)
 
     log(f"{METHOD.label} ({cfg.intra_stage_order}) training completed. Final stage output: {prev_output_dir}")
 
@@ -483,7 +433,7 @@ def main() -> None:
 
     if cfg.resume:
         log(
-            "Resume mode enabled. Completed reference split training, difficulty scoring, stage training, and evals will be skipped."
+            "Resume mode enabled. Completed reference split training, difficulty scoring, and stage training will be skipped."
         )
     else:
         log(
