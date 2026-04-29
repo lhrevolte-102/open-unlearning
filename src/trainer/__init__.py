@@ -15,6 +15,7 @@ from trainer.unlearn.ceu import CEU
 from trainer.unlearn.satimp import SatImp
 from trainer.unlearn.wga import WGA
 from trainer.unlearn.pdu import PDU
+from trainer.unlearn.infocurl import InfoCURL_GradDiff, InfoCURL_NPO, InfoCURL_SimNPO
 
 
 import logging
@@ -28,13 +29,24 @@ def _register_trainer(trainer_class):
     TRAINER_REGISTRY[trainer_class.__name__] = trainer_class
 
 
+def _get_device_count():
+    # `TrainingArguments` warmup computation should use the active accelerator
+    # count. On Ascend, `torch.cuda.device_count()` stays at 0.
+    if hasattr(torch, "npu"):
+        try:
+            return max(1, torch.npu.device_count())
+        except Exception:
+            logger.warning("Falling back after torch.npu.device_count() failed.")
+    return max(1, torch.cuda.device_count())
+
+
 def load_trainer_args(trainer_args: DictConfig, dataset):
     trainer_args = dict(trainer_args)
     warmup_epochs = trainer_args.pop("warmup_epochs", None)
     if warmup_epochs:
         batch_size = trainer_args["per_device_train_batch_size"]
         grad_accum_steps = trainer_args["gradient_accumulation_steps"]
-        num_devices = torch.cuda.device_count()
+        num_devices = _get_device_count()
         dataset_len = len(dataset)
         trainer_args["warmup_steps"] = int(
             (warmup_epochs * dataset_len)
@@ -99,3 +111,6 @@ _register_trainer(CEU)
 _register_trainer(SatImp)
 _register_trainer(WGA)
 _register_trainer(PDU)
+_register_trainer(InfoCURL_GradDiff)
+_register_trainer(InfoCURL_NPO)
+_register_trainer(InfoCURL_SimNPO)

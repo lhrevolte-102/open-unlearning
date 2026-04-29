@@ -17,6 +17,12 @@ logging.getLogger("absl").setLevel(logging.WARNING)
 logger = logging.getLogger("evaluator")
 
 
+def _harmonic_mean(values, eps=1e-10):
+    values = np.asarray(values, dtype=np.float64)
+    values = np.clip(values, eps, None)
+    return len(values) / np.sum(1.0 / values)
+
+
 @unlearning_metric(name="probability")
 def probability(model, **kwargs):
     """Compute the probabilities by data points and report aggregated average"""
@@ -267,3 +273,115 @@ def extraction_strength(model, **kwargs):
     )
     es_values = aggregate_to_1D(es_values)
     return {"agg_value": np.mean(es_values), "value_by_index": scores_by_index}
+
+@unlearning_metric(name="mod_truth_ratio")
+def mod_truth_ratio(model, **kwargs):
+    def closer_to_1_better(arr):
+        return np.mean(np.minimum(arr, 1 / (arr + 1e-10)))
+
+    def true_better(arr):
+        return np.mean(np.maximum(0, 1 - arr))
+
+    if kwargs["aggregator"] == "closer_to_1_better":
+        aggregator = closer_to_1_better
+    elif kwargs["aggregator"] == "true_better":
+        aggregator = true_better
+    else:
+        raise ValueError(f"Invalid truth ratio aggregator: {kwargs['aggregator']}")
+
+    correct_answer_results = kwargs["pre_compute"]["correct"]["value_by_index"]
+    wrong_answer_results = kwargs["pre_compute"]["wrong"]["value_by_index"]
+
+    correct_indices = list(correct_answer_results.keys())
+    wrong_indices = list(wrong_answer_results.keys())
+    assert correct_indices == wrong_indices
+
+    filtered_indices = [
+        idx
+        for idx in correct_indices
+        if correct_answer_results[idx] is not None
+        and wrong_answer_results[idx] is not None
+    ]
+    correct_avg_losses = [
+        correct_answer_results[idx]["avg_loss"] for idx in filtered_indices
+    ]
+    wrong_avg_losses = [
+        wrong_answer_results[idx]["avg_loss"] for idx in filtered_indices
+    ]
+
+    correct_avg_losses = aggregate_to_1D(np.array(correct_avg_losses))
+    wrong_avg_losses = aggregate_to_1D(np.array(wrong_avg_losses))
+
+    mod_truth_ratios = 1 / (1 + np.exp(correct_avg_losses - wrong_avg_losses))
+
+    value_by_index = dict(
+        zip(correct_indices, [{"score": val} for val in mod_truth_ratios])
+    )
+    stats = np.array([evals["score"] for evals in value_by_index.values()])
+    agg = aggregator(stats)
+    return {"agg_value": agg, "value_by_index": value_by_index}
+
+
+@unlearning_metric(name="memorization")
+def memorization(model, **kwargs):
+    """Memorization score from OpenUnlearning Appendix F.1.
+
+    Paper definition:
+        Memorization Score = HM(1 - ES, 1 - EM, 1 - Para. Prob, 1 - Truth Ratio)
+
+    where:
+    - ES: extraction_strength
+    - EM: exact_memorization
+    - Para. Prob: forget_Q_A_PARA_Prob
+    - Truth Ratio: modified truth ratio on the forget set
+
+    Higher memorization score means more effective forgetting.
+    """
+
+    pre = kwargs["pre_compute"]
+    source_fields = {
+        "extraction_strength": "score",
+        "exact_memorization": "score",
+        "forget_Q_A_PARA_Prob": "prob",
+        "forget_mod_truth_ratio": "score",
+    }
+
+    value_maps = {
+        metric_name: pre[metric_name]["value_by_index"]
+        for metric_name in source_fields
+    }
+    common_indices = set.intersection(
+        *(set(metric_values.keys()) for metric_values in value_maps.values())
+    )
+
+    value_by_index = {}
+    for idx in sorted(common_indices):
+        components = []
+        raw_components = {}
+        valid = True
+        for metric_name, field_name in source_fields.items():
+            entry = value_maps[metric_name].get(idx)
+            if entry is None:
+                valid = False
+                break
+            value = entry.get(field_name)
+            if value is None:
+                valid = False
+                break
+            raw_value = float(value)
+            raw_components[metric_name] = raw_value
+            components.append(1.0 - raw_value)
+        if not valid:
+            continue
+        value_by_index[idx] = {
+            "score": float(_harmonic_mean(components)),
+            "components": raw_components,
+        }
+
+    memorization_values = np.array(
+        [entry["score"] for entry in value_by_index.values()], dtype=np.float64
+    )
+    agg_value = (
+        float(np.mean(memorization_values)) if len(memorization_values) else None
+    )
+    return {"agg_value": agg_value, "value_by_index": value_by_index}

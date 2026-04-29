@@ -47,7 +47,7 @@ for split in "${splits[@]}"; do
             echo ${task_name}: Unlearning ${model_path} using ${trainer}
 
             # Unlearn
-            CUDA_VISIBLE_DEVICES=0,1 accelerate launch --config_file configs/accelerate/default_config.yaml --main_process_port $MASTER_PORT \
+            CUDA_VISIBLE_DEVICES=0 accelerate launch --config_file configs/accelerate/default_config.yaml --main_process_port $MASTER_PORT \
             src/train.py --config-name=unlearn.yaml \
             experiment=${experiment} \
             trainer=${trainer} \

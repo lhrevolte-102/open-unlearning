@@ -1,5 +1,11 @@
 import hydra
+import torch
 from omegaconf import DictConfig
+
+try:
+    import torch_npu  # noqa: F401
+except ImportError:
+    pass
 
 from trainer.utils import seed_everything
 from model import get_model

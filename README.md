@@ -125,6 +125,18 @@ python setup_data.py --eval # saves/eval now contains evaluation results of the 
 # python setup_data.py --help
 ```
 
+### Ascend NPU Quickstart
+
+This repository now includes an Ascend-specific path that avoids CUDA-only defaults such as `flash_attention_2`, `paged_adamw_32bit`, and the baseline `CUDA_VISIBLE_DEVICES` launch prefixes.
+
+See [`docs/ascend.md`](docs/ascend.md) for details. The short version is:
+
+```bash
+# Use an environment with a working torch + torch_npu pair first
+pip install -r requirements-ascend.txt
+bash scripts/tofu_unlearn_ascend.sh
+```
+
 ---
 
 ### 🔄 Updated TOFU benchmark

@@ -1,0 +1,26 @@
+defaults:
+  - NPO
+
+handler: InfoCURL_NPO
+args:
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 1
+  dataloader_num_workers: 0
+  ddp_find_unused_parameters: None
+  gradient_checkpointing: False
+method_args:
+  beta: 0.1
+  alpha: 1.0
+  gamma: 1.0
+  retain_loss_type: NLL
+  sampler:
+    mode: easy
+    K: 10
+    gamma: 0.5
+    lam: 0.0
+    score_subpool: 64
+    use_ref_gap: true
+    length_normalize: true
+    param_scope: last_layer_lm_head
+    retain_batch_size: 8
+    retain_ema_decay: 0.9

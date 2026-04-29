@@ -24,7 +24,27 @@ def classifier_prob(model, **kwargs):
     text_key = kwargs.get("text_key", "generation")
     classifier_model_args = kwargs["classifier_model_args"]
     classifier_tokenization_args = kwargs["classifier_tokenization_args"]
-    device = kwargs.get("device", "cuda")
+    device = kwargs.get("device")
+    if device is None:
+        if hasattr(torch, "npu"):
+            try:
+                torch.npu.current_device()
+                device = "npu"
+            except Exception:
+                device = "cpu"
+        elif torch.cuda.is_available():
+            device = "cuda"
+        else:
+            device = "cpu"
+    elif device == "cuda" and not torch.cuda.is_available():
+        if hasattr(torch, "npu"):
+            try:
+                torch.npu.current_device()
+                device = "npu"
+            except Exception:
+                device = "cpu"
+        else:
+            device = "cpu"
 
     tokenizer = AutoTokenizer.from_pretrained(**classifier_tokenization_args)
     classifier = AutoModelForSequenceClassification.from_pretrained(
@@ -59,7 +79,13 @@ def classifier_prob(model, **kwargs):
         with torch.no_grad():
             outputs = classifier(**inputs)
         # Convert logits to probabilities
-        scores = F.softmax(outputs.logits, dim=-1)[:, class_id].cpu().numpy().tolist()
+        scores = (
+            F.softmax(outputs.logits, dim=-1)[:, class_id]
+            .to(torch.float32)
+            .cpu()
+            .numpy()
+            .tolist()
+        )
 
         # Map predictions to labels
         for idx, prob, text in zip(batch_indices, scores, batch_texts):

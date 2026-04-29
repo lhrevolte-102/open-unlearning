@@ -1,5 +1,12 @@
 import hydra
+import torch
 from omegaconf import DictConfig
+
+try:
+    import torch_npu  # noqa: F401
+except ImportError:
+    pass
+
 from data import get_data, get_collators
 from model import get_model
 from trainer import load_trainer
@@ -37,7 +44,7 @@ def main(cfg: DictConfig):
     # Get Evaluators
     evaluators = None
     eval_cfgs = cfg.get("eval", None)
-    if eval_cfgs:
+    if eval_cfgs and (cfg.trainer.args.do_eval or cfg.trainer.args.eval_on_start):
         evaluators = get_evaluators(
             eval_cfgs=eval_cfgs,
             template_args=template_args,
