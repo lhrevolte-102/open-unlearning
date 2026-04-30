@@ -15,7 +15,12 @@ from trainer.unlearn.ceu import CEU
 from trainer.unlearn.satimp import SatImp
 from trainer.unlearn.wga import WGA
 from trainer.unlearn.pdu import PDU
-from trainer.unlearn.infocurl import InfoCURL_GradDiff, InfoCURL_NPO, InfoCURL_SimNPO
+from trainer.unlearn.infocurl import (
+    InfoCURL_GradDiff,
+    InfoCURL_NPO,
+    InfoCURL_SimNPO,
+)
+from trainer.unlearn.ado import ADO_NPO
 
 
 import logging
@@ -114,3 +119,4 @@ _register_trainer(PDU)
 _register_trainer(InfoCURL_GradDiff)
 _register_trainer(InfoCURL_NPO)
 _register_trainer(InfoCURL_SimNPO)
+_register_trainer(ADO_NPO)

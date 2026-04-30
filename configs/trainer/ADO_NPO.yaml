@@ -1,0 +1,21 @@
+defaults:
+  - NPO
+
+handler: ADO_NPO
+args:
+  dataloader_num_workers: 0
+method_args:
+  beta: 0.1
+  alpha: 1.0
+  gamma: 1.0
+  retain_loss_type: NLL
+  sampler:
+    signal: logp
+    eta: 1.0
+    beta: 0.9
+    refresh_epochs: 1
+    gain_floor: 0.0
+    gain_clip: null
+    prob_floor: 0.0
+    uniform_mix: 0.05
+    log_every: 10
