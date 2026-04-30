@@ -11,7 +11,7 @@ case "${backend}" in
         eval_device_map="npu:0"
         ;;
     cuda)
-        default_env_activate=""
+        default_env_activate="activate unlearning"
         eval_device_map="cuda:0"
         ;;
     *)
@@ -21,7 +21,9 @@ case "${backend}" in
 esac
 
 env_activate="${ENV_ACTIVATE:-${default_env_activate}}"
-if [[ -f "${env_activate}" ]]; then
+if [[ "${backend}" == "cuda" && -z "${ENV_ACTIVATE:-}" ]]; then
+    source activate unlearning
+elif [[ -f "${env_activate}" ]]; then
     source "${env_activate}"
 elif [[ -n "${env_activate}" ]]; then
     echo "WARN: env activate script not found: ${env_activate}" >&2
@@ -75,7 +77,7 @@ resolve_tokenizer_path() {
     if [[ -n "${TOKENIZER_PATH:-}" ]]; then
         echo "${TOKENIZER_PATH}"
     else
-        echo "meta-llama/${model}"
+        resolve_model_path
     fi
 }
 
